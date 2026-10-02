@@ -366,6 +366,13 @@ begin
    'workflows',coalesce((select jsonb_agg(to_jsonb(w)) from sav_ai_crm.ai_agent_workflows w where w.agent_id=a.id),'[]'::jsonb),
    'executions',coalesce((select jsonb_agg(to_jsonb(e) order by e.created_at desc) from (select * from sav_ai_crm.ai_agent_executions where agent_id=a.id order by created_at desc limit 50) e),'[]'::jsonb),
    'actions',coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at desc) from (select * from sav_ai_crm.ai_agent_actions where agent_id=a.id order by created_at desc limit 50) x),'[]'::jsonb),
+   'approvals',coalesce((select jsonb_agg(jsonb_build_object(
+      'id',p.id,'action_id',p.action_id,'status',p.status,'reason',p.reason,'requested_at',p.requested_at,'reviewed_at',p.reviewed_at,
+      'action',x.action,'risk_level',x.risk_level,'target_type',x.target_type,'target_id',x.target_id
+   ) order by p.requested_at desc)
+   from sav_ai_crm.ai_agent_approvals p
+   join sav_ai_crm.ai_agent_actions x on x.id=p.action_id
+   where x.agent_id=a.id),'[]'::jsonb),
    'escalations',coalesce((select jsonb_agg(to_jsonb(s) order by s.created_at desc) from (select * from sav_ai_crm.ai_agent_escalations where agent_id=a.id order by created_at desc limit 50) s),'[]'::jsonb),
    'tasks',coalesce((select jsonb_agg(to_jsonb(t) order by t.created_at desc) from (select id,title,status,priority,due_at,lead_id,contact_id,created_at,completed_at from sav_ai_crm.tasks where workspace_id=me.workspace_id and assigned_agent_id=a.id and archived_at is null order by created_at desc limit 50) t),'[]'::jsonb),
    'audit',coalesce((select jsonb_agg(to_jsonb(q) order by q.created_at desc) from (
