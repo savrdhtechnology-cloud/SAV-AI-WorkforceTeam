@@ -16,7 +16,6 @@ import {
   ListTodo,
   Loader2,
   LogOut,
-  MessageSquareMore,
   Network,
   Plus,
   Search,
@@ -31,6 +30,7 @@ import { crmSupabase } from "./supabase-client";
 import TasksView from "./tasks/TasksView";
 import AgentsModule from "./agents/AgentsModule";
 import WorkflowsModule from "./workflows/WorkflowsModule";
+import InboxModule from "./inbox/InboxModule";
 import "./crm.css";
 
 type View = "dashboard" | "leads" | "pipeline" | "agents" | "workflows" | "inbox" | "tasks" | "integrations" | "settings";
@@ -75,7 +75,6 @@ export default function CRMPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
   const [integrations, setIntegrations] = useState<any[]>([]);
-  const [conversations, setConversations] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [leadModal, setLeadModal] = useState(false);
   const [search, setSearch] = useState("");
@@ -115,20 +114,18 @@ export default function CRMPage() {
   }
 
   async function refreshAll() {
-    const [ws, dash, leadRes, agentRes, integrationRes, convoRes] = await Promise.all([
+    const [ws, dash, leadRes, agentRes, integrationRes] = await Promise.all([
       crmSupabase.rpc("sav_ai_crm_workspace"),
       crmSupabase.rpc("sav_ai_crm_dashboard"),
       crmSupabase.rpc("sav_ai_crm_list_leads", { p_status: null, p_search: null }),
       crmSupabase.rpc("sav_ai_crm_agents"),
       crmSupabase.rpc("sav_ai_crm_integrations"),
-      crmSupabase.rpc("sav_ai_crm_conversations"),
     ]);
     setWorkspace(ws.data);
     setDashboard(dash.data);
     setLeads((leadRes.data || []) as Lead[]);
     setAgents(agentRes.data || []);
     setIntegrations(integrationRes.data || []);
-    setConversations(convoRes.data || []);
   }
 
   async function handleAuth(e: FormEvent<HTMLFormElement>) {
@@ -278,7 +275,7 @@ export default function CRMPage() {
               {view === "pipeline" && <PipelineView pipeline={pipeline} />}
               {view === "agents" && <AgentsModule />}
               {view === "workflows" && <WorkflowsModule />}
-              {view === "inbox" && <SimpleList title="Conversations" icon={MessageSquareMore} items={conversations} empty="No conversations yet. Connect WhatsApp, email, SMS, voice or web chat to start receiving threads." />}
+              {view === "inbox" && <InboxModule />}
               {view === "tasks" && <TasksView onChanged={refreshAll} />}
               {view === "integrations" && <IntegrationsView integrations={integrations} />}
               {view === "settings" && <SettingsView workspace={workspace} />}
