@@ -19,3 +19,10 @@ export function jsonError(message:string,status=400,code?:string){
 export function bearerPresent(req:NextRequest){
   return /^Bearer\s+\S+$/i.test(req.headers.get("authorization")||"");
 }
+
+
+export function serverAdminSupabase(){
+  const serviceKey=process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if(!serviceKey) return null;
+  return createClient(url,serviceKey,{auth:{persistSession:false,autoRefreshToken:false}});
+}
