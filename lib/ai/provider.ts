@@ -23,8 +23,19 @@ class UnconfiguredProvider implements AIProvider {
   evaluateConfidence(){ return Promise.resolve(this.result<{confidence:number}>()); }
 }
 
+class AdapterUnavailableProvider extends UnconfiguredProvider {
+  private unavailable<T>():AIProviderResult<T>{
+    return {ok:false,error:"AI_PROVIDER_ERROR",message:"AI provider credentials are present, but no provider adapter is installed for the configured provider."};
+  }
+  generateResponse(){ return Promise.resolve(this.unavailable<{text:string}>()); }
+  classifyIntent(){ return Promise.resolve(this.unavailable<{intent:string;confidence:number}>()); }
+  extractLeadData(){ return Promise.resolve(this.unavailable<Record<string,unknown>>()); }
+  summarizeConversation(){ return Promise.resolve(this.unavailable<{summary:string}>()); }
+  planAction(){ return Promise.resolve(this.unavailable<{action:string;payload:Record<string,unknown>;confidence:number}>()); }
+  evaluateConfidence(){ return Promise.resolve(this.unavailable<{confidence:number}>()); }
+}
+
 export function getAIProvider():AIProvider {
-  // Provider adapters will be wired here later. Configuration is deliberately
-  // not treated as successful AI execution until a real adapter is present.
-  return new UnconfiguredProvider();
+  if(!process.env.AI_API_KEY) return new UnconfiguredProvider();
+  return new AdapterUnavailableProvider();
 }
