@@ -832,7 +832,11 @@ begin
  if p_mode not in ('draft_reply','summarize','escalate') then raise exception 'Invalid AI conversation mode'; end if;
  if not 'READ_CONVERSATION'=any(agent.capabilities) then raise exception 'AI agent lacks READ_CONVERSATION capability'; end if;
  if p_mode='draft_reply' then
-   result:=public.sav_ai_crm_request_agent_action(agent.id,'SEND_MESSAGE','conversation',c.id,jsonb_build_object('mode','draft_only','instruction',p_instruction,'channel',c.channel));
+   if not 'SEND_MESSAGE'=any(agent.capabilities) or not c.channel=any(agent.channels) then raise exception 'AI agent lacks channel SEND_MESSAGE capability'; end if;
+   result:=jsonb_build_object(
+     'draft_allowed',true,'mode','draft_reply','agent_id',agent.id,'conversation_id',c.id,
+     'channel',c.channel,'send_requires_approval',true,'instruction',p_instruction
+   );
  elsif p_mode='escalate' then
    result:=public.sav_ai_crm_request_agent_action(agent.id,'CREATE_ESCALATION','conversation',c.id,jsonb_build_object('reason','AI_ESCALATION','details',p_instruction));
  else
@@ -844,6 +848,37 @@ begin
  values(me.workspace_id,auth.uid(),'inbox.ai.request','conversation',c.id,jsonb_build_object('agent_id',agent.id,'mode',p_mode));
  return result;
 end $$;
+
+create or replace function public.sav_ai_crm_ai_draft_context(p_message_id uuid,p_agent_id uuid,p_instruction text default null)
+returns jsonb language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members; m sav_ai_crm.messages; c sav_ai_crm.conversations; agent sav_ai_crm.ai_agents; permission jsonb;
+begin
+ me:=sav_ai_crm.inbox_current_member();
+ if me.id is null or not sav_ai_crm.inbox_can_write(me.role) then raise exception 'AI draft not permitted'; end if;
+ select * into m from sav_ai_crm.messages where id=p_message_id and workspace_id=me.workspace_id;
+ if m.id is null then raise exception 'Message not found'; end if;
+ select * into c from sav_ai_crm.conversations where id=m.conversation_id and workspace_id=me.workspace_id and archived_at is null;
+ if c.id is null then raise exception 'Conversation not found'; end if;
+ select * into agent from sav_ai_crm.ai_agents where id=p_agent_id and workspace_id=me.workspace_id and status='active';
+ if agent.id is null then raise exception 'AI agent not found'; end if;
+ if not 'READ_CONVERSATION'=any(agent.capabilities) or not 'SEND_MESSAGE'=any(agent.capabilities) or not c.channel=any(agent.channels) then
+   raise exception 'AI agent lacks conversation/channel capabilities';
+ end if;
+ permission:=public.sav_ai_crm_request_conversation_ai(c.id,agent.id,'draft_reply',p_instruction);
+ return jsonb_build_object(
+   'permission',permission,
+   'conversation_id',c.id,'message_id',m.id,'agent_id',agent.id,'agent_name',coalesce(agent.display_name,agent.name),
+   'channel',c.channel,'instruction',p_instruction,
+   'messages',coalesce((select jsonb_agg(jsonb_build_object(
+      'role',case when x.direction='inbound' then 'customer' else case when x.sender_type='ai_agent' then 'assistant' else 'human' end end,
+      'content',coalesce(x.body,''),'created_at',x.created_at,'message_type',x.message_type
+    ) order by x.created_at) from (
+      select * from sav_ai_crm.messages where conversation_id=c.id and workspace_id=me.workspace_id and message_type<>'note' order by created_at desc limit 50
+    ) x),'[]'::jsonb)
+ );
+end $;
 
 -- ---------------------------------------------------------------------------
 -- Phase 3 workflow event extension; same engine, no second workflow system
@@ -930,6 +965,46 @@ begin
  return aid;
 end $;
 
+create or replace function sav_ai_crm.dispatch_workflow_event_system(p_workspace_id uuid,p_event text,p_context jsonb,p_event_key text)
+returns jsonb language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $
+declare tr record; results jsonb:='[]'::jsonb; eid uuid; run_result jsonb; idem text;
+begin
+ if p_event not in (
+   'CONVERSATION_CREATED','CONVERSATION_ASSIGNED','MESSAGE_RECEIVED','MESSAGE_DELIVERED','MESSAGE_FAILED','CONVERSATION_CLOSED','CONVERSATION_REOPENED'
+ ) then raise exception 'Invalid system workflow event'; end if;
+ if coalesce(trim(p_event_key),'')='' then raise exception 'Event idempotency key is required'; end if;
+ for tr in select t.* from sav_ai_crm.workflow_triggers t join sav_ai_crm.workflows w on w.id=t.workflow_id
+   where t.workspace_id=p_workspace_id and t.event=p_event and t.enabled=true and w.status='active' and w.archived_at is null
+ loop
+   if sav_ai_crm.workflow_conditions_match(tr.conditions,coalesce(p_context,'{}')) then
+     idem:='system-event:'||p_event||':'||p_event_key||':'||tr.workflow_id::text;
+     insert into sav_ai_crm.workflow_executions(
+       workspace_id,workflow_id,workflow_version,trigger,context,current_node_id,execution_state,idempotency_key,started_at
+     )
+     select p_workspace_id,w.id,w.version,p_event,coalesce(p_context,'{}'),n.id,'queued',idem,now()
+     from sav_ai_crm.workflows w
+     join sav_ai_crm.workflow_nodes n on n.workflow_id=w.id and n.workflow_version=w.version and n.node_type='TRIGGER'
+     where w.id=tr.workflow_id
+     order by n.created_at limit 1
+     on conflict(workspace_id,idempotency_key) do nothing
+     returning id into eid;
+     if eid is null then
+       select id into eid from sav_ai_crm.workflow_executions where workspace_id=p_workspace_id and idempotency_key=idem;
+     end if;
+     if eid is not null then
+       -- System webhook dispatch only queues execution. Authenticated workers/users resume it through existing engine.
+       results:=results||jsonb_build_array(jsonb_build_object('workflow_id',tr.workflow_id,'execution_id',eid,'status','queued'));
+     end if;
+   end if;
+ end loop;
+ return results;
+end $;
+
+revoke all on function sav_ai_crm.dispatch_workflow_event_system(uuid,text,jsonb,text) from public,anon,authenticated;
+grant execute on function sav_ai_crm.dispatch_workflow_event_system(uuid,text,jsonb,text) to service_role;
+
 -- ---------------------------------------------------------------------------
 -- Grants
 -- ---------------------------------------------------------------------------
@@ -950,6 +1025,7 @@ revoke all on function public.sav_ai_crm_mark_message_read(uuid,boolean) from pu
 revoke all on function public.sav_ai_crm_add_internal_note(uuid,text) from public,anon;
 revoke all on function public.sav_ai_crm_inbox_create_task(uuid,text,text,text,text,timestamptz,timestamptz,text,uuid,uuid) from public,anon;
 revoke all on function public.sav_ai_crm_request_conversation_ai(uuid,uuid,text,text) from public,anon;
+revoke all on function public.sav_ai_crm_ai_draft_context(uuid,uuid,text) from public,anon;
 
 grant execute on function public.sav_ai_crm_channel_accounts() to authenticated;
 grant execute on function public.sav_ai_crm_upsert_channel_account(uuid,text,text,text,text,text,text,jsonb,text) to authenticated;
@@ -968,5 +1044,6 @@ grant execute on function public.sav_ai_crm_mark_message_read(uuid,boolean) to a
 grant execute on function public.sav_ai_crm_add_internal_note(uuid,text) to authenticated;
 grant execute on function public.sav_ai_crm_inbox_create_task(uuid,text,text,text,text,timestamptz,timestamptz,text,uuid,uuid) to authenticated;
 grant execute on function public.sav_ai_crm_request_conversation_ai(uuid,uuid,text,text) to authenticated;
+grant execute on function public.sav_ai_crm_ai_draft_context(uuid,uuid,text) to authenticated;
 
 commit;
