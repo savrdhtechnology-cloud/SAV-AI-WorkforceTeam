@@ -702,7 +702,7 @@ create or replace function public.sav_ai_crm_persist_inbound_message(
 ) returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
 as $$
-declare acc sav_ai_crm.channel_accounts; cid uuid; mid uuid; resolved_lead_id uuid; resolved_contact_id uuid; duplicate_mid uuid;
+declare acc sav_ai_crm.channel_accounts; cid uuid; mid uuid; resolved_lead_id uuid; resolved_contact_id uuid; duplicate_mid uuid; created_conversation boolean:=false;
 begin
  select * into acc from sav_ai_crm.channel_accounts where id=p_channel_account_id and workspace_id=p_workspace_id and channel=p_channel and provider=p_provider and status='connected';
  if acc.id is null then raise exception 'CHANNEL_PROVIDER_NOT_CONFIGURED'; end if;
@@ -733,6 +733,7 @@ begin
  if cid is null then
   insert into sav_ai_crm.conversations(workspace_id,contact_id,lead_id,channel,external_thread_id,status,priority,unread_count,last_message_at,last_message_preview,created_at,updated_at)
   values(p_workspace_id,resolved_contact_id,resolved_lead_id,p_channel,p_external_thread_id,'open','medium',0,p_received_at,left(coalesce(p_body,''),180),now(),now()) returning id into cid;
+  created_conversation:=true;
   insert into sav_ai_crm.conversation_activity(workspace_id,conversation_id,activity_type,title,metadata)
   values(p_workspace_id,cid,'conversation_created','Conversation created from inbound message',jsonb_build_object('provider',p_provider,'channel',p_channel));
  end if;
@@ -754,7 +755,7 @@ begin
  insert into sav_ai_crm.audit_logs(workspace_id,action,entity_type,entity_id,metadata)
  values(p_workspace_id,'inbox.message.received','message',mid,jsonb_build_object('conversation_id',cid,'provider',p_provider,'channel',p_channel));
  update sav_ai_crm.channel_webhook_events set processing_status='processed',processed_at=now() where workspace_id=p_workspace_id and provider=p_provider and provider_event_id=p_provider_event_id;
- return jsonb_build_object('duplicate',false,'conversation_id',cid,'message_id',mid,'lead_id',resolved_lead_id,'contact_id',resolved_contact_id);
+ return jsonb_build_object('duplicate',false,'conversation_created',created_conversation,'conversation_id',cid,'message_id',mid,'lead_id',resolved_lead_id,'contact_id',resolved_contact_id);
 end $$;
 
 revoke all on function public.sav_ai_crm_resolve_channel_account(text,text,text,text) from public,anon,authenticated;
