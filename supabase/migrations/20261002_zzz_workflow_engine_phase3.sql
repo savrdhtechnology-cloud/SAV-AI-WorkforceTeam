@@ -365,7 +365,7 @@ create or replace function public.sav_ai_crm_create_workflow(
 ) returns uuid language plpgsql security definer
 set search_path=public,sav_ai_crm
 as $$
-declare me sav_ai_crm.members; wid uuid; graph jsonb; workflow_id uuid;
+declare me sav_ai_crm.members; wid uuid; graph jsonb; new_workflow_id uuid;
 begin
  me:=sav_ai_crm.workflow_current_member();
  if me.id is null or not sav_ai_crm.workflow_can_manage(me.role) then raise exception 'Workflow creation not permitted'; end if;
@@ -380,15 +380,15 @@ begin
 
  insert into sav_ai_crm.workflows(workspace_id,name,description,trigger_type,status,definition,version,created_by,updated_by)
  values(wid,trim(p_name),nullif(trim(coalesce(p_description,'')),''),p_trigger_type,'draft',graph,1,me.id,me.id)
- returning id into workflow_id;
+ returning id into new_workflow_id;
 
- perform sav_ai_crm.workflow_persist_graph(wid,workflow_id,1,graph);
- insert into sav_ai_crm.workflow_versions(workspace_id,workflow_id,version,definition,created_by) values(wid,workflow_id,1,graph,me.id);
+ perform sav_ai_crm.workflow_persist_graph(wid,new_workflow_id,1,graph);
+ insert into sav_ai_crm.workflow_versions(workspace_id,workflow_id,version,definition,created_by) values(wid,new_workflow_id,1,graph,me.id);
  insert into sav_ai_crm.workflow_triggers(workspace_id,workflow_id,event,conditions,enabled)
- values(wid,workflow_id,p_trigger_type,coalesce((select n.config->'conditions' from sav_ai_crm.workflow_nodes n where n.workflow_id=workflow_id and n.workflow_version=1 and n.node_type='TRIGGER' limit 1),'[]'::jsonb),true);
+ values(wid,new_workflow_id,p_trigger_type,coalesce((select n.config->'conditions' from sav_ai_crm.workflow_nodes n where n.workflow_id=new_workflow_id and n.workflow_version=1 and n.node_type='TRIGGER' limit 1),'[]'::jsonb),true);
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
- values(wid,auth.uid(),'workflow.create','workflow',workflow_id,jsonb_build_object('trigger',p_trigger_type,'version',1));
- return workflow_id;
+ values(wid,auth.uid(),'workflow.create','workflow',new_workflow_id,jsonb_build_object('trigger',p_trigger_type,'version',1));
+ return new_workflow_id;
 end $$;
 
 create or replace function public.sav_ai_crm_update_workflow(
