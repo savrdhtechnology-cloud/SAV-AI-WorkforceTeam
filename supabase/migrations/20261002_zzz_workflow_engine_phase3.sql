@@ -369,7 +369,7 @@ begin
  wid:=me.workspace_id;
  graph:=p_graph;
  if p_template_id is not null then
-   select definition into graph from sav_ai_crm.workflow_templates where id=p_template_id and workspace_id=wid;
+   select definition,trigger_type into graph,p_trigger_type from sav_ai_crm.workflow_templates where id=p_template_id and workspace_id=wid;
    if graph is null then raise exception 'Workflow template not found'; end if;
  end if;
 
@@ -659,13 +659,13 @@ begin
      if target_id is not null and not exists(select 1 from sav_ai_crm.leads where id=target_id and workspace_id=ex.workspace_id) then raise exception 'Workflow task lead is outside workspace'; end if;
      agent_id:=nullif(n.config->>'assigned_agent_id','')::uuid;
      if agent_id is not null and not exists(select 1 from sav_ai_crm.ai_agents where id=agent_id and workspace_id=ex.workspace_id and status='active') then raise exception 'Workflow task agent is invalid'; end if;
-     insert into sav_ai_crm.tasks(workspace_id,lead_id,title,description,task_type,followup_type,status,priority,due_at,reminder_at,assigned_agent_id,notes)
+     insert into sav_ai_crm.tasks(workspace_id,lead_id,title,description,task_type,followup_type,status,priority,due_at,reminder_at,assigned_agent_id,created_by,notes)
      values(ex.workspace_id,target_id,coalesce(n.config->>'title',n.label),n.config->>'description','followup',
        case when n.node_type='FOLLOW_UP' then coalesce(n.config->>'followup_type','general') else 'general' end,
        'pending',coalesce(n.config->>'priority','medium'),
        case when (n.config->>'due_in_seconds') is not null then now()+make_interval(secs=>(n.config->>'due_in_seconds')::integer) else null end,
        case when (n.config->>'reminder_in_seconds') is not null then now()+make_interval(secs=>(n.config->>'reminder_in_seconds')::integer) else null end,
-       agent_id,'Created by: Workflow — '||w.name)
+       agent_id,me.id,'Created by: Workflow — '||w.name)
      returning id into task_id;
      insert into sav_ai_crm.activities(workspace_id,lead_id,task_id,activity_type,title,description,metadata)
      values(ex.workspace_id,target_id,task_id,case when n.node_type='FOLLOW_UP' then 'workflow_followup_created' else 'workflow_task_created' end,
@@ -708,12 +708,12 @@ begin
        if target_id is not null and not exists(select 1 from sav_ai_crm.leads where id=target_id and workspace_id=ex.workspace_id) then raise exception 'Lead is outside this workspace'; end if;
        agent_id:=nullif(n.config->>'assigned_agent_id','')::uuid;
        if agent_id is not null and not exists(select 1 from sav_ai_crm.ai_agents where id=agent_id and workspace_id=ex.workspace_id and status='active') then raise exception 'Assigned agent is invalid'; end if;
-       insert into sav_ai_crm.tasks(workspace_id,lead_id,title,description,task_type,followup_type,status,priority,due_at,assigned_agent_id,notes)
+       insert into sav_ai_crm.tasks(workspace_id,lead_id,title,description,task_type,followup_type,status,priority,due_at,assigned_agent_id,created_by,notes)
        values(ex.workspace_id,target_id,coalesce(n.config->>'title','Workflow task'),n.config->>'description','followup',
          case when n.config->>'action'='CREATE_FOLLOWUP' then coalesce(n.config->>'followup_type','general') else 'general' end,
          'pending',coalesce(n.config->>'priority','medium'),
          case when n.config->>'due_in_seconds' is not null then now()+make_interval(secs=>(n.config->>'due_in_seconds')::integer) else null end,
-         agent_id,'Created by: Workflow — '||w.name) returning id into task_id;
+         agent_id,me.id,'Created by: Workflow — '||w.name) returning id into task_id;
        insert into sav_ai_crm.activities(workspace_id,lead_id,task_id,activity_type,title,description,metadata)
        values(ex.workspace_id,target_id,task_id,case when n.config->>'action'='CREATE_FOLLOWUP' then 'workflow_followup_created' else 'workflow_task_created' end,
          'Workflow action created task',coalesce(n.config->>'title','Workflow task'),jsonb_build_object('workflow_id',w.id,'execution_id',ex.id,'node_id',n.id));
@@ -727,6 +727,7 @@ begin
            updated_at=now()
          where id=target_id and workspace_id=ex.workspace_id;
        else
+         if nullif(n.config->>'assigned_to','') is not null and nullif(n.config->>'assigned_agent_id','') is not null then raise exception 'Task can be assigned to a human or AI agent, not both'; end if;
          if nullif(n.config->>'assigned_to','') is not null and not exists(select 1 from sav_ai_crm.members where id=(n.config->>'assigned_to')::uuid and workspace_id=ex.workspace_id and is_active) then raise exception 'Human task assignee is invalid'; end if;
          if nullif(n.config->>'assigned_agent_id','') is not null and not exists(select 1 from sav_ai_crm.ai_agents where id=(n.config->>'assigned_agent_id')::uuid and workspace_id=ex.workspace_id and status='active') then raise exception 'AI task assignee is invalid'; end if;
          update sav_ai_crm.tasks set assigned_to=nullif(n.config->>'assigned_to','')::uuid,
@@ -781,6 +782,9 @@ begin
        update sav_ai_crm.leads set notes=concat_ws(E'\n',notes,'[Workflow '||w.name||'] '||coalesce(n.config->>'note','')),updated_at=now()
        where id=target_id and workspace_id=ex.workspace_id;
        if not found then raise exception 'Lead is outside this workspace'; end if;
+       insert into sav_ai_crm.activities(workspace_id,lead_id,actor_member_id,activity_type,title,description,metadata)
+       values(ex.workspace_id,target_id,me.id,'workflow_note_added','Workflow added note',coalesce(n.config->>'note',''),
+         jsonb_build_object('workflow_id',w.id,'execution_id',ex.id,'node_id',n.id));
      elsif n.config->>'action'='END_WORKFLOW' then
        update sav_ai_crm.workflow_node_executions set status='completed',output='{"ended":true}'::jsonb,completed_at=now() where execution_id=ex.id and node_execution_id=node_exec_id;
        update sav_ai_crm.workflow_executions set current_node_id=null,execution_state='completed',depth=depth+1,completed_at=now(),updated_at=now() where id=ex.id;
@@ -789,7 +793,10 @@ begin
      else
        raise exception 'WORKFLOW_ACTION_ADAPTER_NOT_IMPLEMENTED';
      end if;
-     update sav_ai_crm.workflow_node_executions set status='completed',output=jsonb_build_object('action',n.config->>'action'),completed_at=now()
+     insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+     values(ex.workspace_id,auth.uid(),'workflow.action.'||lower(coalesce(n.config->>'action','unknown')),'workflow_execution',ex.id,
+       jsonb_build_object('workflow_id',w.id,'node_id',n.id,'target_id',target_id,'task_id',task_id));
+     update sav_ai_crm.workflow_node_executions set status='completed',output=jsonb_build_object('action',n.config->>'action','task_id',task_id,'target_id',target_id),completed_at=now()
        where execution_id=ex.id and node_execution_id=node_exec_id;
      next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,null);
 
