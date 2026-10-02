@@ -20,24 +20,25 @@ import {
   Workflow,
   Zap,
 } from "lucide-react";
+import RevealController from "./reveal-controller";
 
 const agents = [
   {
     icon: PhoneCall,
     title: "SAV Sales",
-    text: "Qualifies leads, follows up automatically and keeps every prospect moving.",
+    text: "Qualifies inbound leads, follows up with precision and keeps every opportunity moving forward.",
     stat: "42 leads queued",
   },
   {
     icon: Headphones,
     title: "SAV Support",
-    text: "Handles common customer questions, routes complex cases and never loses context.",
+    text: "Resolves routine customer queries instantly, preserves context and escalates only what needs a human.",
     stat: "24×7 available",
   },
   {
     icon: BrainCircuit,
     title: "SAV Operations",
-    text: "Executes recurring operational tasks, updates records and coordinates workflows.",
+    text: "Runs repeatable operations, updates connected systems and keeps workflows moving without manual chasing.",
     stat: "86 actions ready",
   },
 ];
@@ -48,32 +49,32 @@ const features = [
   {
     icon: Bot,
     title: "AI Agents",
-    text: "Purpose-built virtual team members for sales, service, operations and internal tasks.",
+    text: "Deploy role-specific AI agents for sales, service, operations and internal execution.",
   },
   {
     icon: Workflow,
     title: "Workflow Automation",
-    text: "Turn repeat processes into governed automations with approval and escalation controls.",
+    text: "Convert repetitive work into governed automations with rules, approvals and escalation paths.",
   },
   {
     icon: MessageCircleMore,
     title: "Omnichannel",
-    text: "Coordinate conversations across WhatsApp, email, SMS, voice and connected business systems.",
+    text: "Manage customer communication across WhatsApp, email, SMS, voice and connected business systems.",
   },
   {
     icon: Database,
     title: "Knowledge + Memory",
-    text: "Ground agents in your business information and preserve approved working context.",
+    text: "Ground every agent in approved business knowledge while preserving the context needed to act intelligently.",
   },
   {
     icon: ShieldCheck,
     title: "Human Control",
-    text: "Keep sensitive decisions behind approval gates with clear activity history.",
+    text: "Keep sensitive actions behind human approval with clear controls and a traceable activity history.",
   },
   {
     icon: BarChart3,
     title: "Live Analytics",
-    text: "Track work completed, pending actions, channel outcomes and team productivity.",
+    text: "See what was completed, what is pending, channel outcomes and workforce performance in real time.",
   },
 ];
 
@@ -149,6 +150,7 @@ function CommandPreview() {
 export default function Home() {
   return (
     <main>
+      <RevealController />
       <header className="site-header">
         <a className="logo" href="#top" aria-label="SAVRDH Intelligence Workforce">
           <BrandMark />
@@ -170,50 +172,48 @@ export default function Home() {
         <div className="hero-glow glow-one" />
         <div className="hero-glow glow-two" />
         <div className="grid-overlay" />
-        <div className="hero-copy">
+        <div className="hero-copy" data-reveal>
           <div className="eyebrow"><Sparkles size={14} /> A Savrdh Technology Product</div>
-          <h1>Your Intelligent<br /><span>Virtual Workforce.</span></h1>
+          <h1>AI That Works Like a Team.<br /><span>Always On. Always Coordinated.</span></h1>
           <p>
-            Deploy AI agents that follow up, communicate, coordinate and execute business workflows—
-            across your channels, around the clock, with human control built in.
+            Deploy intelligent AI agents that follow up, communicate, coordinate and execute work across your business — 24×7, across every channel, with human control where it matters.
           </p>
           <div className="hero-actions">
-            <a href="#contact" className="primary-btn">Book a Demo <ArrowRight size={18} /></a>
+            <a href="#contact" className="primary-btn">See SAV in Action <ArrowRight size={18} /></a>
             <a href="#platform" className="ghost-btn"><Play size={16} fill="currentColor" /> Explore Platform</a>
           </div>
           <div className="trust-row">
-            <span><CheckCircle2 size={15} /> Human approvals</span>
-            <span><CheckCircle2 size={15} /> Real-time activity</span>
-            <span><CheckCircle2 size={15} /> Multi-channel</span>
+            <span><CheckCircle2 size={15} /> Human-in-the-loop</span>
+            <span><CheckCircle2 size={15} /> Live execution</span>
+            <span><CheckCircle2 size={15} /> Omnichannel</span>
           </div>
         </div>
 
-        <div className="hero-product">
+        <div className="hero-product" data-reveal>
           <div className="floating-badge badge-one"><span /> 42 leads queued</div>
           <div className="floating-badge badge-two"><Zap size={13} /> Agent executing</div>
           <CommandPreview />
         </div>
       </section>
 
-      <section className="logo-band" aria-label="Supported channels">
+      <section className="logo-band" aria-label="Supported channels" data-reveal>
         <span className="band-label">ONE WORKFORCE. EVERY CHANNEL.</span>
         <div className="channel-row">
           {channels.map((channel) => <span key={channel}>{channel}</span>)}
         </div>
       </section>
 
-      <section className="section platform-section" id="platform">
-        <div className="section-kicker">THE OPERATING LAYER FOR AI WORK</div>
+      <section className="section platform-section" id="platform" data-reveal>
+        <div className="section-kicker">ONE INTELLIGENT WORKFORCE</div>
         <div className="section-heading">
-          <h2>Give your business a workforce that never stops.</h2>
+          <h2>Turn repetitive business work into intelligent execution.</h2>
           <p>
-            SAVRDH Intelligence Workforce brings AI agents, workflows, communication channels,
-            knowledge, memory, approvals and analytics into one controlled workspace.
+            Bring AI agents, workflows, communication, knowledge, approvals and analytics into one secure command center — designed to move work forward without constant manual follow-up.
           </p>
         </div>
         <div className="feature-grid">
           {features.map(({ icon: Icon, title, text }) => (
-            <article className="feature-card" key={title}>
+            <article className="feature-card" key={title} data-reveal>
               <div className="feature-icon"><Icon size={22} /></div>
               <h3>{title}</h3>
               <p>{text}</p>
@@ -223,13 +223,12 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="section agents-section" id="agents">
+      <section className="section agents-section" id="agents" data-reveal>
         <div className="agents-intro">
-          <div className="section-kicker">MEET YOUR AI TEAM</div>
-          <h2>Specialized agents.<br />One coordinated workforce.</h2>
+          <div className="section-kicker">YOUR AI TEAM, BUILT FOR REAL WORK</div>
+          <h2>Specialized AI agents.<br />One coordinated workforce.</h2>
           <p>
-            Assign each agent a clear role, approved knowledge and operational boundaries.
-            SAV coordinates the work and surfaces what needs human attention.
+            Give each agent a clear role, approved knowledge and action boundaries. SAV coordinates execution across the team and surfaces only the moments that need human judgment.
           </p>
           <div className="control-points">
             <span><LockKeyhole size={16} /> Role-based controls</span>
@@ -239,7 +238,7 @@ export default function Home() {
         </div>
         <div className="agent-cards">
           {agents.map(({ icon: Icon, title, text, stat }, i) => (
-            <article className={"agent-card agent-" + (i + 1)} key={title}>
+            <article className={"agent-card agent-" + (i + 1)} key={title} data-reveal>
               <div className="agent-card-top">
                 <div className="agent-avatar"><Icon size={21} /></div>
                 <span className="agent-status"><i /> ACTIVE</span>
@@ -252,14 +251,13 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="section workflow-section">
+      <section className="section workflow-section" data-reveal>
         <div className="workflow-panel">
           <div className="workflow-copy">
-            <div className="section-kicker">FROM COMMAND TO EXECUTION</div>
-            <h2>Tell SAV the outcome. Let the workforce coordinate the work.</h2>
+            <div className="section-kicker">FROM INTENT TO EXECUTION</div>
+            <h2>Describe the outcome. SAV coordinates the work.</h2>
             <p>
-              Use natural-language commands for guided tasks, or automate recurring processes with
-              triggers, business rules, approvals and escalations.
+              Give SAV a natural-language instruction or automate repeatable processes with triggers, business rules, approvals and escalations. The system plans the work, routes actions and keeps execution visible.
             </p>
             <a href="#contact" className="text-link">See how it works <ArrowRight size={16} /></a>
           </div>
@@ -281,11 +279,11 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="section integrations-section" id="integrations">
-        <div className="section-kicker">CONNECTED BY DESIGN</div>
+      <section className="section integrations-section" id="integrations" data-reveal>
+        <div className="section-kicker">BUILT TO WORK WITH YOUR STACK</div>
         <div className="section-heading">
-          <h2>Works with the systems your business already uses.</h2>
-          <p>Connect communication, CRM, data and workflow systems so agents can operate from a shared source of truth.</p>
+          <h2>Connect the systems your team already depends on.</h2>
+          <p>Bring communication, CRM, data and workflow systems together so every agent works from the same trusted business context.</p>
         </div>
         <div className="integration-cloud">
           {["WhatsApp", "Email", "SMS", "Voice", "Savrdh CRM", "Supabase", "Webhooks", "REST API"].map((x, i) => (
@@ -295,14 +293,13 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="section security-section" id="security">
+      <section className="section security-section" id="security" data-reveal>
         <div className="security-card">
           <div>
-            <div className="section-kicker">CONTROL WITHOUT SLOWING DOWN</div>
-            <h2>Automation with governance built in.</h2>
+            <div className="section-kicker">GOVERNANCE BUILT INTO EVERY ACTION</div>
+            <h2>Move faster without giving up control.</h2>
             <p>
-              Define what an agent can access, which actions are automatic, and where human approval
-              is required. Every important action remains visible in activity history.
+              Control what every agent can access, automate low-risk actions, require approval where needed and keep a clear record of important activity.
             </p>
           </div>
           <div className="security-list">
@@ -313,13 +310,13 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="cta-section" id="contact">
+      <section className="cta-section" id="contact" data-reveal>
         <div className="cta-orb" />
         <div className="section-kicker">SAVRDH INTELLIGENCE WORKFORCE</div>
-        <h2>Build a workforce that keeps working after your team logs off.</h2>
-        <p>Your Intelligent Virtual Workforce. Always Working.</p>
+        <h2>Put intelligent execution to work across your business.</h2>
+        <p>AI agents that communicate, coordinate and execute — while your team stays in control.</p>
         <div className="hero-actions cta-actions">
-          <a className="primary-btn" href="mailto:info@savrdhtechnology.com">Request Product Demo <ArrowRight size={18} /></a>
+          <a className="primary-btn" href="mailto:info@savrdhtechnology.com">Request a Live Demo <ArrowRight size={18} /></a>
           <a className="ghost-btn" href="https://www.savrdhtechnology.com">Visit Savrdh Technology</a>
         </div>
       </section>
