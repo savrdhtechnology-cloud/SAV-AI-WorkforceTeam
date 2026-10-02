@@ -51,6 +51,7 @@ function draftPayload(draft: TaskDraft) {
     p_due_at: toIsoOrNull(draft.dueAt),
     p_reminder_at: toIsoOrNull(draft.reminderAt),
     p_lead_id: draft.leadId || null,
+    p_contact_id: draft.contactId || null,
     p_notes: draft.notes.trim() || null,
     p_assignee_type: draft.assigneeType,
     p_assigned_to: draft.assigneeType === "human" ? draft.assignedTo || null : null,
