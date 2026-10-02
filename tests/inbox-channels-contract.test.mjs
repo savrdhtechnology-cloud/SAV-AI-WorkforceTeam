@@ -10,6 +10,7 @@ const inboxTypes=readFileSync(new URL("../app/crm/inbox/inbox-types.ts",import.m
 const inboxUi=readFileSync(new URL("../app/crm/inbox/InboxModule.tsx",import.meta.url),"utf8");
 const inboxService=readFileSync(new URL("../app/crm/inbox/inbox-service.ts",import.meta.url),"utf8");
 const webhook=readFileSync(new URL("../app/api/inbox/webhooks/[channel]/route.ts",import.meta.url),"utf8");
+const deliveryWebhook=readFileSync(new URL("../app/api/inbox/webhooks/[channel]/delivery/route.ts",import.meta.url),"utf8");
 const messageApi=readFileSync(new URL("../app/api/inbox/messages/route.ts",import.meta.url),"utf8");
 const channelsApi=readFileSync(new URL("../app/api/inbox/channels/route.ts",import.meta.url),"utf8");
 const workflowTypes=readFileSync(new URL("../app/crm/workflows/workflow-types.ts",import.meta.url),"utf8");
@@ -57,11 +58,23 @@ test("channel registry is server-only and frontend cannot inject raw credentials
 test("webhook verifies signature before normalization and persistence",()=>{
   const verify=webhook.indexOf("verifyWebhook");
   const normalize=webhook.indexOf("normalizeInboundMessage");
+  const receive=webhook.indexOf("receiveMessage");
   const persist=webhook.indexOf("sav_ai_crm_persist_inbound_message");
-  assert.ok(verify>=0&&normalize>verify&&persist>normalize);
+  assert.ok(verify>=0&&normalize>verify&&receive>normalize&&persist>receive);
   assert.match(webhook,/WEBHOOK_SIGNATURE_INVALID/);
   assert.match(webhook,/serverAdminSupabase/);
   assert.match(webhook,/dispatch_workflow_event_system/);
+});
+
+test("delivery webhook verifies provider and queries provider status instead of trusting raw status",()=>{
+  const verify=deliveryWebhook.indexOf("verifyWebhook");
+  const status=deliveryWebhook.indexOf("getDeliveryStatus");
+  const persist=deliveryWebhook.indexOf("sav_ai_crm_apply_delivery_event");
+  assert.ok(verify>=0&&status>verify&&persist>status);
+  assert.match(deliveryWebhook,/providerMessageId and providerEventId are required/);
+  assert.match(deliveryWebhook,/MESSAGE_DELIVERED/);
+  assert.match(deliveryWebhook,/MESSAGE_FAILED/);
+  assert.doesNotMatch(deliveryWebhook,/p_status:payload\./);
 });
 
 test("webhook and delivery persistence are idempotent",()=>{
