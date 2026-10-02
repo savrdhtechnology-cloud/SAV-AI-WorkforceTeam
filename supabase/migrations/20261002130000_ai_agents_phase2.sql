@@ -381,6 +381,281 @@ end $$;
 -- ---------------------------------------------------------------------------
 -- Persistent admin management
 -- ---------------------------------------------------------------------------
+create or replace function public.sav_ai_crm_create_agent(
+ p_name text,p_slug text,p_role_name text,p_description text default null
+) returns uuid language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members; aid uuid;
+begin
+ me:=sav_ai_crm.agent_current_member();
+ if me.id is null or not sav_ai_crm.agent_is_admin(me.role) then raise exception 'Agent creation requires owner or admin permission'; end if;
+ if length(trim(coalesce(p_name,'')))<3 then raise exception 'Agent name is required'; end if;
+ if p_slug !~ '^[a-z0-9]+(?:-[a-z0-9]+)*
+ p_agent_id uuid,p_display_name text,p_description text,p_channels text[],p_confidence_threshold numeric,
+ p_working_hours jsonb,p_daily_limits jsonb,p_escalation_rules jsonb
+) returns void language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $$
+declare me sav_ai_crm.members;
+begin
+ me:=sav_ai_crm.agent_current_member();
+ if me.id is null or not sav_ai_crm.agent_can_manage(me.role) then raise exception 'Agent management not permitted'; end if;
+ if p_confidence_threshold<0 or p_confidence_threshold>1 then raise exception 'Confidence threshold must be between 0 and 1'; end if;
+ update sav_ai_crm.ai_agents set
+   display_name=trim(p_display_name),description=nullif(trim(p_description),''),
+   channels=coalesce(p_channels,'{}'),confidence_threshold=p_confidence_threshold,
+   working_hours=coalesce(p_working_hours,'{}'),daily_limits=coalesce(p_daily_limits,'{}'),
+   escalation_rules=coalesce(p_escalation_rules,'{}'),updated_at=now()
+ where id=p_agent_id and workspace_id=me.workspace_id;
+ if not found then raise exception 'Agent not found'; end if;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ values(me.workspace_id,auth.uid(),'agent.update','ai_agent',p_agent_id,'{}');
+end $$;
+
+create or replace function public.sav_ai_crm_set_agent_status(p_agent_id uuid,p_status text)
+returns void language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $$
+declare me sav_ai_crm.members; old_status text;
+begin
+ me:=sav_ai_crm.agent_current_member();
+ if me.id is null or not sav_ai_crm.agent_can_manage(me.role) then raise exception 'Agent management not permitted'; end if;
+ if p_status not in ('active','paused','disabled','error') then raise exception 'Invalid agent status'; end if;
+ select status into old_status from sav_ai_crm.ai_agents where id=p_agent_id and workspace_id=me.workspace_id;
+ if old_status is null then raise exception 'Agent not found'; end if;
+ update sav_ai_crm.ai_agents set status=p_status,updated_at=now() where id=p_agent_id;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ values(me.workspace_id,auth.uid(),'agent.status','ai_agent',p_agent_id,jsonb_build_object('from',old_status,'to',p_status));
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Controlled action request engine
+-- ---------------------------------------------------------------------------
+create or replace function public.sav_ai_crm_request_agent_action(
+ p_agent_id uuid,p_action text,p_target_type text,p_target_id uuid default null,p_payload jsonb default '{}'::jsonb
+) returns jsonb language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $$
+declare
+ me sav_ai_crm.members; agent sav_ai_crm.ai_agents; cap sav_ai_crm.ai_agent_capabilities;
+ action_id uuid; approval_id uuid; needs_approval boolean;
+begin
+ me:=sav_ai_crm.agent_current_member();
+ if me.id is null then raise exception 'CRM membership required'; end if;
+ select * into agent from sav_ai_crm.ai_agents where id=p_agent_id and workspace_id=me.workspace_id;
+ if agent.id is null then raise exception 'Agent not found'; end if;
+ if agent.status<>'active' then raise exception 'Agent is not active'; end if;
+
+ select * into cap from sav_ai_crm.ai_agent_capabilities
+ where agent_id=agent.id and capability=p_action and is_enabled=true;
+ if cap.id is null then raise exception 'Agent capability denied'; end if;
+
+ if p_target_type='lead' and p_target_id is not null and not exists(select 1 from sav_ai_crm.leads where id=p_target_id and workspace_id=me.workspace_id) then
+   raise exception 'Lead is outside this workspace';
+ elsif p_target_type='task' and p_target_id is not null and not exists(select 1 from sav_ai_crm.tasks where id=p_target_id and workspace_id=me.workspace_id) then
+   raise exception 'Task is outside this workspace';
+ elsif p_target_type='conversation' and p_target_id is not null and not exists(select 1 from sav_ai_crm.conversations where id=p_target_id and workspace_id=me.workspace_id) then
+   raise exception 'Conversation is outside this workspace';
+ end if;
+
+ needs_approval:=cap.approval_required or cap.risk_level in ('high','critical');
+
+ insert into sav_ai_crm.ai_agent_actions(
+   workspace_id,agent_id,requested_by,action,target_type,target_id,payload,risk_level,approval_required,status
+ ) values(
+   me.workspace_id,agent.id,me.id,p_action,p_target_type,p_target_id,coalesce(p_payload,'{}'),cap.risk_level,needs_approval,
+   case when needs_approval then 'waiting_approval' else 'approved' end
+ ) returning id into action_id;
+
+ if needs_approval then
+   insert into sav_ai_crm.ai_agent_approvals(workspace_id,action_id,requested_by,status)
+   values(me.workspace_id,action_id,me.id,'pending') returning id into approval_id;
+ end if;
+
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ values(me.workspace_id,auth.uid(),'agent.action.request','ai_agent_action',action_id,
+   jsonb_build_object('agent_id',agent.id,'capability',p_action,'risk',cap.risk_level,'approval_required',needs_approval));
+
+ return jsonb_build_object('action_id',action_id,'risk_level',cap.risk_level,'approval_required',needs_approval,'approval_id',approval_id,
+   'status',case when needs_approval then 'waiting_approval' else 'approved' end);
+end $$;
+
+create or replace function public.sav_ai_crm_review_agent_action(p_action_id uuid,p_decision text,p_reason text default null)
+returns void language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $$
+declare me sav_ai_crm.members; a sav_ai_crm.ai_agent_actions; approval sav_ai_crm.ai_agent_approvals;
+begin
+ me:=sav_ai_crm.agent_current_member();
+ if me.id is null or not sav_ai_crm.agent_can_manage(me.role) then raise exception 'Approval review not permitted'; end if;
+ if p_decision not in ('approved','rejected') then raise exception 'Invalid approval decision'; end if;
+ select * into a from sav_ai_crm.ai_agent_actions where id=p_action_id and workspace_id=me.workspace_id;
+ if a.id is null or a.status<>'waiting_approval' then raise exception 'Pending action not found'; end if;
+ select * into approval from sav_ai_crm.ai_agent_approvals where action_id=a.id and workspace_id=me.workspace_id and status='pending';
+ if approval.id is null then raise exception 'Pending approval not found'; end if;
+ update sav_ai_crm.ai_agent_approvals set status=p_decision,reviewed_by=me.id,reason=p_reason,reviewed_at=now() where id=approval.id;
+ update sav_ai_crm.ai_agent_actions set status=p_decision,updated_at=now() where id=a.id;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ values(me.workspace_id,auth.uid(),'agent.action.'||p_decision,'ai_agent_action',a.id,jsonb_build_object('reason',p_reason));
+end $$;
+
+-- Low/medium controlled execution for implemented internal actions only.
+create or replace function public.sav_ai_crm_execute_agent_action(p_action_id uuid)
+returns jsonb language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $$
+declare me sav_ai_crm.members; a sav_ai_crm.ai_agent_actions; agent sav_ai_crm.ai_agents; task_id uuid; lead_rec sav_ai_crm.leads;
+begin
+ me:=sav_ai_crm.agent_current_member();
+ if me.id is null then raise exception 'CRM membership required'; end if;
+ select * into a from sav_ai_crm.ai_agent_actions where id=p_action_id and workspace_id=me.workspace_id for update;
+ if a.id is null then raise exception 'Action not found'; end if;
+ if a.approval_required and a.status<>'approved' then raise exception 'Human approval required'; end if;
+ if a.status not in ('approved','pending') then raise exception 'Action is not executable'; end if;
+ select * into agent from sav_ai_crm.ai_agents where id=a.agent_id and workspace_id=me.workspace_id;
+ if agent.status<>'active' then raise exception 'Agent is not active'; end if;
+
+ update sav_ai_crm.ai_agent_actions set status='executing',updated_at=now() where id=a.id;
+
+ if a.action in ('CREATE_TASK','CREATE_FOLLOWUP') then
+   if a.target_type<>'lead' or a.target_id is null then raise exception 'Task creation requires a lead target'; end if;
+   select * into lead_rec from sav_ai_crm.leads where id=a.target_id and workspace_id=me.workspace_id;
+   if lead_rec.id is null then raise exception 'Lead not found'; end if;
+   insert into sav_ai_crm.tasks(
+     workspace_id,lead_id,title,description,task_type,followup_type,status,priority,due_at,reminder_at,
+     assigned_agent_id,notes
+   ) values(
+     me.workspace_id,lead_rec.id,
+     coalesce(nullif(a.payload->>'title',''),agent.display_name||' follow-up'),
+     nullif(a.payload->>'description',''),'followup',
+     case when a.action='CREATE_FOLLOWUP' then coalesce(nullif(a.payload->>'followup_type',''),'general') else 'general' end,
+     'pending',coalesce(nullif(a.payload->>'priority',''),'medium'),
+     nullif(a.payload->>'due_at','')::timestamptz,nullif(a.payload->>'reminder_at','')::timestamptz,
+     agent.id,
+     'Created by: '||agent.display_name
+   ) returning id into task_id;
+   insert into sav_ai_crm.activities(workspace_id,lead_id,task_id,activity_type,title,description,metadata)
+   values(me.workspace_id,lead_rec.id,task_id,
+     case when a.action='CREATE_FOLLOWUP' then 'agent_followup_created' else 'agent_task_created' end,
+     agent.display_name||' created task',coalesce(a.payload->>'title','Follow-up task'),
+     jsonb_build_object('agent_id',agent.id,'agent_name',agent.display_name,'action_id',a.id));
+ elsif a.action='CREATE_NOTE' then
+   if a.target_type<>'lead' or a.target_id is null then raise exception 'Note requires a lead target'; end if;
+   update sav_ai_crm.leads set notes=concat_ws(E'\n',notes,'['||agent.display_name||'] '||coalesce(a.payload->>'note','')),
+     updated_at=now() where id=a.target_id and workspace_id=me.workspace_id;
+   if not found then raise exception 'Lead not found'; end if;
+   insert into sav_ai_crm.activities(workspace_id,lead_id,activity_type,title,description,metadata)
+   values(me.workspace_id,a.target_id,'agent_note_created',agent.display_name||' added note',a.payload->>'note',
+     jsonb_build_object('agent_id',agent.id,'action_id',a.id));
+ elsif a.action='CREATE_ESCALATION' then
+   insert into sav_ai_crm.ai_agent_escalations(workspace_id,agent_id,lead_id,conversation_id,task_id,reason,details)
+   values(me.workspace_id,agent.id,
+     case when a.target_type='lead' then a.target_id else null end,
+     case when a.target_type='conversation' then a.target_id else null end,
+     case when a.target_type='task' then a.target_id else null end,
+     coalesce(nullif(a.payload->>'reason',''),'FAILED_ACTION'),
+     a.payload->>'details');
+ else
+   update sav_ai_crm.ai_agent_actions set status='failed',error='ACTION_ADAPTER_NOT_IMPLEMENTED',updated_at=now(),completed_at=now() where id=a.id;
+   raise exception 'Action adapter not implemented';
+ end if;
+
+ update sav_ai_crm.ai_agent_actions set status='completed',
+   result=jsonb_build_object('task_id',task_id),updated_at=now(),completed_at=now() where id=a.id;
+
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ values(me.workspace_id,auth.uid(),'agent.action.completed','ai_agent_action',a.id,jsonb_build_object('agent_id',agent.id,'capability',a.action,'task_id',task_id));
+
+ return jsonb_build_object('action_id',a.id,'status','completed','task_id',task_id);
+end $$;
+
+-- Execution records used by provider/test console.
+create or replace function public.sav_ai_crm_create_agent_execution(p_agent_id uuid,p_command text,p_input jsonb default '{}'::jsonb)
+returns uuid language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $$
+declare me sav_ai_crm.members; agent sav_ai_crm.ai_agents; eid uuid;
+begin
+ me:=sav_ai_crm.agent_current_member();
+ if me.id is null then raise exception 'CRM membership required'; end if;
+ select * into agent from sav_ai_crm.ai_agents where id=p_agent_id and workspace_id=me.workspace_id;
+ if agent.id is null then raise exception 'Agent not found'; end if;
+ if agent.status<>'active' then raise exception 'Agent is not active'; end if;
+ insert into sav_ai_crm.ai_agent_executions(workspace_id,agent_id,requested_by,command,input,execution_status)
+ values(me.workspace_id,agent.id,me.id,trim(p_command),coalesce(p_input,'{}'),'queued') returning id into eid;
+ return eid;
+end $$;
+
+create or replace function public.sav_ai_crm_fail_agent_execution(p_execution_id uuid,p_error text,p_output jsonb default null)
+returns void language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $$
+declare me sav_ai_crm.members;
+begin
+ me:=sav_ai_crm.agent_current_member();
+ if me.id is null then raise exception 'CRM membership required'; end if;
+ update sav_ai_crm.ai_agent_executions set execution_status='failed',error=p_error,output=p_output,
+   started_at=coalesce(started_at,now()),completed_at=now()
+ where id=p_execution_id and workspace_id=me.workspace_id;
+ if not found then raise exception 'Execution not found'; end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Grants
+-- ---------------------------------------------------------------------------
+revoke all on function public.sav_ai_crm_create_agent(text,text,text,text) from public,anon;
+revoke all on function public.sav_ai_crm_agent_executions(uuid) from public,anon;
+revoke all on function public.sav_ai_crm_agent_registry() from public,anon;
+revoke all on function public.sav_ai_crm_agent_detail(uuid) from public,anon;
+revoke all on function public.sav_ai_crm_agent_metrics() from public,anon;
+revoke all on function public.sav_ai_crm_update_agent(uuid,text,text,text[],numeric,jsonb,jsonb,jsonb) from public,anon;
+revoke all on function public.sav_ai_crm_set_agent_status(uuid,text) from public,anon;
+revoke all on function public.sav_ai_crm_request_agent_action(uuid,text,text,uuid,jsonb) from public,anon;
+revoke all on function public.sav_ai_crm_review_agent_action(uuid,text,text) from public,anon;
+revoke all on function public.sav_ai_crm_execute_agent_action(uuid) from public,anon;
+revoke all on function public.sav_ai_crm_create_agent_execution(uuid,text,jsonb) from public,anon;
+revoke all on function public.sav_ai_crm_fail_agent_execution(uuid,text,jsonb) from public,anon;
+
+grant execute on function public.sav_ai_crm_create_agent(text,text,text,text) to authenticated;
+grant execute on function public.sav_ai_crm_agent_executions(uuid) to authenticated;
+grant execute on function public.sav_ai_crm_agent_registry() to authenticated;
+grant execute on function public.sav_ai_crm_agent_detail(uuid) to authenticated;
+grant execute on function public.sav_ai_crm_agent_metrics() to authenticated;
+grant execute on function public.sav_ai_crm_update_agent(uuid,text,text,text[],numeric,jsonb,jsonb,jsonb) to authenticated;
+grant execute on function public.sav_ai_crm_set_agent_status(uuid,text) to authenticated;
+grant execute on function public.sav_ai_crm_request_agent_action(uuid,text,text,uuid,jsonb) to authenticated;
+grant execute on function public.sav_ai_crm_review_agent_action(uuid,text,text) to authenticated;
+grant execute on function public.sav_ai_crm_execute_agent_action(uuid) to authenticated;
+grant execute on function public.sav_ai_crm_create_agent_execution(uuid,text,jsonb) to authenticated;
+grant execute on function public.sav_ai_crm_fail_agent_execution(uuid,text,jsonb) to authenticated;
+
+commit;
+ then raise exception 'Invalid agent slug'; end if;
+ insert into sav_ai_crm.ai_agents(
+   workspace_id,name,slug,display_name,role_name,description,status,channels,autonomy_level,approval_required
+ ) values(me.workspace_id,trim(p_name),p_slug,trim(p_name),trim(p_role_name),nullif(trim(coalesce(p_description,'')),''),'disabled','{}','assisted',true)
+ returning id into aid;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id)
+ values(me.workspace_id,auth.uid(),'agent.create','ai_agent',aid);
+ return aid;
+end $;
+
+create or replace function public.sav_ai_crm_agent_executions(p_agent_id uuid)
+returns jsonb language plpgsql stable security definer
+set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members;
+begin
+ me:=sav_ai_crm.agent_current_member();
+ if me.id is null then raise exception 'CRM membership required'; end if;
+ if not exists(select 1 from sav_ai_crm.ai_agents where id=p_agent_id and workspace_id=me.workspace_id) then raise exception 'Agent not found'; end if;
+ return coalesce((
+   select jsonb_agg(to_jsonb(x) order by x.created_at desc)
+   from (select * from sav_ai_crm.ai_agent_executions where workspace_id=me.workspace_id and agent_id=p_agent_id order by created_at desc limit 100) x
+ ),'[]'::jsonb);
+end $;
+
 create or replace function public.sav_ai_crm_update_agent(
  p_agent_id uuid,p_display_name text,p_description text,p_channels text[],p_confidence_threshold numeric,
  p_working_hours jsonb,p_daily_limits jsonb,p_escalation_rules jsonb
