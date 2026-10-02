@@ -380,7 +380,7 @@ begin
  perform sav_ai_crm.workflow_persist_graph(wid,workflow_id,1,graph);
  insert into sav_ai_crm.workflow_versions(workspace_id,workflow_id,version,definition,created_by) values(wid,workflow_id,1,graph,me.id);
  insert into sav_ai_crm.workflow_triggers(workspace_id,workflow_id,event,conditions,enabled)
- values(wid,workflow_id,p_trigger_type,coalesce((select config->'conditions' from sav_ai_crm.workflow_nodes where workflow_id=workflow_id and workflow_version=1 and node_type='TRIGGER' limit 1),'[]'::jsonb),true);
+ values(wid,workflow_id,p_trigger_type,coalesce((select n.config->'conditions' from sav_ai_crm.workflow_nodes n where n.workflow_id=workflow_id and n.workflow_version=1 and n.node_type='TRIGGER' limit 1),'[]'::jsonb),true);
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
  values(wid,auth.uid(),'workflow.create','workflow',workflow_id,jsonb_build_object('trigger',p_trigger_type,'version',1));
  return workflow_id;
@@ -488,7 +488,7 @@ as $
 declare me sav_ai_crm.members; tr record; results jsonb:='[]'::jsonb; eid uuid; run_result jsonb; idem text;
 begin
  me:=sav_ai_crm.workflow_current_member();
- if me.id is null then raise exception 'CRM membership required'; end if;
+ if me.id is null or me.role='viewer' then raise exception 'Workflow event dispatch not permitted'; end if;
  if p_event not in ('NEW_LEAD','LEAD_STATUS_CHANGED','PIPELINE_STAGE_CHANGED','TASK_CREATED','TASK_COMPLETED','FOLLOWUP_DUE','REMINDER_DUE','CONVERSATION_RECEIVED','AI_ESCALATION','MANUAL_TRIGGER','SCHEDULED_TRIGGER') then raise exception 'Invalid workflow event'; end if;
  if coalesce(trim(p_event_key),'')='' then raise exception 'Event idempotency key is required'; end if;
 
@@ -676,6 +676,9 @@ begin
 
    elsif n.node_type='AI_AGENT' then
      agent_id:=nullif(n.config->>'agent_id','')::uuid;
+     if agent_id is null and nullif(n.config->>'agent_slug','') is not null then
+       select id into agent_id from sav_ai_crm.ai_agents where workspace_id=ex.workspace_id and slug=n.config->>'agent_slug' and status='active' limit 1;
+     end if;
      capability:=coalesce(n.config->>'action','CREATE_TASK');
      target_type:=coalesce(n.config->>'target_type','lead');
      if n.config->>'target_id_path' is not null then target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(n.config->>'target_id_path','.'))::text),'null')::uuid;
@@ -700,7 +703,67 @@ begin
      end if;
 
    elsif n.node_type='ACTION' then
-     if n.config->>'action'='UPDATE_LEAD' then
+     if n.config->>'action' in ('CREATE_TASK','CREATE_FOLLOWUP') then
+       target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(coalesce(n.config->>'lead_id_path','lead.id'),'.'))::text),'null')::uuid;
+       if target_id is not null and not exists(select 1 from sav_ai_crm.leads where id=target_id and workspace_id=ex.workspace_id) then raise exception 'Lead is outside this workspace'; end if;
+       agent_id:=nullif(n.config->>'assigned_agent_id','')::uuid;
+       if agent_id is not null and not exists(select 1 from sav_ai_crm.ai_agents where id=agent_id and workspace_id=ex.workspace_id and status='active') then raise exception 'Assigned agent is invalid'; end if;
+       insert into sav_ai_crm.tasks(workspace_id,lead_id,title,description,task_type,followup_type,status,priority,due_at,assigned_agent_id,notes)
+       values(ex.workspace_id,target_id,coalesce(n.config->>'title','Workflow task'),n.config->>'description','followup',
+         case when n.config->>'action'='CREATE_FOLLOWUP' then coalesce(n.config->>'followup_type','general') else 'general' end,
+         'pending',coalesce(n.config->>'priority','medium'),
+         case when n.config->>'due_in_seconds' is not null then now()+make_interval(secs=>(n.config->>'due_in_seconds')::integer) else null end,
+         agent_id,'Created by: Workflow — '||w.name) returning id into task_id;
+       insert into sav_ai_crm.activities(workspace_id,lead_id,task_id,activity_type,title,description,metadata)
+       values(ex.workspace_id,target_id,task_id,case when n.config->>'action'='CREATE_FOLLOWUP' then 'workflow_followup_created' else 'workflow_task_created' end,
+         'Workflow action created task',coalesce(n.config->>'title','Workflow task'),jsonb_build_object('workflow_id',w.id,'execution_id',ex.id,'node_id',n.id));
+     elsif n.config->>'action' in ('UPDATE_TASK','ASSIGN_TASK') then
+       target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(coalesce(n.config->>'task_id_path','task.id'),'.'))::text),'null')::uuid;
+       if target_id is null or not exists(select 1 from sav_ai_crm.tasks where id=target_id and workspace_id=ex.workspace_id and archived_at is null) then raise exception 'Task is outside this workspace'; end if;
+       if n.config->>'action'='UPDATE_TASK' then
+         update sav_ai_crm.tasks set
+           status=coalesce(n.config->'values'->>'status',status),
+           priority=coalesce(n.config->'values'->>'priority',priority),
+           updated_at=now()
+         where id=target_id and workspace_id=ex.workspace_id;
+       else
+         if nullif(n.config->>'assigned_to','') is not null and not exists(select 1 from sav_ai_crm.members where id=(n.config->>'assigned_to')::uuid and workspace_id=ex.workspace_id and is_active) then raise exception 'Human task assignee is invalid'; end if;
+         if nullif(n.config->>'assigned_agent_id','') is not null and not exists(select 1 from sav_ai_crm.ai_agents where id=(n.config->>'assigned_agent_id')::uuid and workspace_id=ex.workspace_id and status='active') then raise exception 'AI task assignee is invalid'; end if;
+         update sav_ai_crm.tasks set assigned_to=nullif(n.config->>'assigned_to','')::uuid,
+           assigned_agent_id=nullif(n.config->>'assigned_agent_id','')::uuid,updated_at=now()
+         where id=target_id and workspace_id=ex.workspace_id;
+       end if;
+       insert into sav_ai_crm.activities(workspace_id,task_id,actor_member_id,activity_type,title,description,metadata)
+       values(ex.workspace_id,target_id,me.id,'workflow_task_updated','Workflow updated task',w.name,jsonb_build_object('workflow_id',w.id,'execution_id',ex.id,'node_id',n.id,'action',n.config->>'action'));
+     elsif n.config->>'action'='ASSIGN_AGENT' then
+       agent_id:=nullif(n.config->>'agent_id','')::uuid;
+       if agent_id is null or not exists(select 1 from sav_ai_crm.ai_agents where id=agent_id and workspace_id=ex.workspace_id and status='active') then raise exception 'Agent assignment is invalid'; end if;
+       update sav_ai_crm.workflow_executions set context=jsonb_set(context,'{assigned_agent_id}',to_jsonb(agent_id::text),true),updated_at=now() where id=ex.id;
+     elsif n.config->>'action'='CREATE_ESCALATION' then
+       agent_id:=nullif(n.config->>'agent_id','')::uuid;
+       if agent_id is null and nullif(n.config->>'agent_slug','') is not null then select id into agent_id from sav_ai_crm.ai_agents where workspace_id=ex.workspace_id and slug=n.config->>'agent_slug' limit 1; end if;
+       if agent_id is null then raise exception 'Escalation action requires agent'; end if;
+       target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(coalesce(n.config->>'lead_id_path','lead.id'),'.'))::text),'null')::uuid;
+       insert into sav_ai_crm.ai_agent_escalations(workspace_id,agent_id,lead_id,workflow_id,workflow_execution_id,reason,status,details)
+       values(ex.workspace_id,agent_id,target_id,w.id,ex.id,coalesce(n.config->>'reason','FAILED_ACTION'),'open',n.config->>'details');
+     elsif n.config->>'action'='REQUEST_APPROVAL' then
+       insert into sav_ai_crm.workflow_approvals(workspace_id,workflow_id,execution_id,node_id,approver_role,approver_user_id,requested_by,approval_reason,risk_level,status)
+       values(ex.workspace_id,ex.workflow_id,ex.id,n.id,n.config->>'approver_role',nullif(n.config->>'approver_user_id','')::uuid,me.id,
+         coalesce(n.config->>'reason','Workflow action approval required'),coalesce(n.config->>'risk_level','high'),'pending')
+       returning id into approval_id;
+       next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,'approved');
+       update sav_ai_crm.workflow_node_executions set status='waiting_approval',approval_required=true,risk_level=coalesce(n.config->>'risk_level','high'),output=jsonb_build_object('approval_id',approval_id),completed_at=now()
+         where execution_id=ex.id and node_execution_id=node_exec_id;
+       update sav_ai_crm.workflow_executions set current_node_id=next_id,execution_state='waiting_approval',depth=depth+1,updated_at=now() where id=ex.id;
+       return jsonb_build_object('id',ex.id,'status','waiting_approval','approval_id',approval_id);
+     elsif n.config->>'action'='WAIT' then
+       delay_seconds:=greatest(1,least(coalesce((n.config->>'delay_seconds')::integer,60),604800));
+       next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,null);
+       update sav_ai_crm.workflow_node_executions set status='waiting',output=jsonb_build_object('delay_seconds',delay_seconds),completed_at=now()
+         where execution_id=ex.id and node_execution_id=node_exec_id;
+       update sav_ai_crm.workflow_executions set current_node_id=next_id,execution_state='waiting',scheduled_for=now()+make_interval(secs=>delay_seconds),depth=depth+1,updated_at=now() where id=ex.id;
+       return jsonb_build_object('id',ex.id,'status','waiting','scheduled_for',now()+make_interval(secs=>delay_seconds));
+     elsif n.config->>'action'='UPDATE_LEAD' then
        target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(coalesce(n.config->>'lead_id_path','lead.id'),'.'))::text),'null')::uuid;
        if target_id is null or not exists(select 1 from sav_ai_crm.leads where id=target_id and workspace_id=ex.workspace_id) then raise exception 'Lead is outside this workspace'; end if;
        update sav_ai_crm.leads set
@@ -732,6 +795,9 @@ begin
 
    elsif n.node_type='ESCALATION' then
      agent_id:=nullif(n.config->>'agent_id','')::uuid;
+     if agent_id is null and nullif(n.config->>'agent_slug','') is not null then
+       select id into agent_id from sav_ai_crm.ai_agents where workspace_id=ex.workspace_id and slug=n.config->>'agent_slug' limit 1;
+     end if;
      if agent_id is null or not exists(select 1 from sav_ai_crm.ai_agents where id=agent_id and workspace_id=ex.workspace_id) then raise exception 'Escalation requires a valid agent'; end if;
      target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(coalesce(n.config->>'lead_id_path','lead.id'),'.'))::text),'null')::uuid;
      insert into sav_ai_crm.ai_agent_escalations(workspace_id,agent_id,lead_id,execution_id,workflow_id,workflow_execution_id,reason,status,details)
@@ -773,7 +839,9 @@ begin
  if me.id is null or me.role='viewer' then raise exception 'Workflow resume not permitted'; end if;
  select * into ex from sav_ai_crm.workflow_executions where id=p_execution_id and workspace_id=me.workspace_id;
  if ex.id is null then raise exception 'Workflow execution not found'; end if;
- if ex.execution_state='waiting' and ex.scheduled_for>now() then raise exception 'Workflow wait has not expired'; end if;
+ if ex.scheduled_for is not null and ex.scheduled_for>now() then
+   return jsonb_build_object('id',ex.id,'status',case when ex.execution_state='waiting' then 'waiting' else 'retrying' end,'scheduled_for',ex.scheduled_for);
+ end if;
  if ex.execution_state not in ('waiting','queued','failed') then raise exception 'Workflow execution is not resumable'; end if;
  if ex.execution_state='failed' and ex.retry_count>ex.max_retries then raise exception 'Workflow retry limit exceeded'; end if;
  if ex.execution_state='failed' then
@@ -855,17 +923,17 @@ end $$;
 with template_data(template_key,name,description,trigger_type,definition) as (
  values
  ('new-lead-qualification','New Lead Qualification','Qualify a new lead with SAV-Sales and create a follow-up task.','NEW_LEAD',
-  '{"nodes":[{"id":"trigger","type":"TRIGGER","label":"New Lead","position":{"x":80,"y":120},"config":{"conditions":[]}},{"id":"agent","type":"AI_AGENT","label":"SAV-Sales Qualification","position":{"x":300,"y":120},"config":{"action":"CREATE_TASK","target_type":"lead","target_id_path":"lead.id","payload":{"title":"Qualify new lead"}}},{"id":"end","type":"END","label":"End","position":{"x":540,"y":120},"config":{}}],"edges":[{"id":"e1","source":"trigger","target":"agent"},{"id":"e2","source":"agent","target":"end"}]}'::jsonb),
+  '{"nodes":[{"id":"trigger","type":"TRIGGER","label":"New Lead","position":{"x":80,"y":120},"config":{"conditions":[]}},{"id":"agent","type":"AI_AGENT","label":"SAV-Sales Qualification","position":{"x":300,"y":120},"config":{"agent_slug":"sav-sales","action":"CREATE_TASK","target_type":"lead","target_id_path":"lead.id","payload":{"title":"Qualify new lead"}}},{"id":"end","type":"END","label":"End","position":{"x":540,"y":120},"config":{}}],"edges":[{"id":"e1","source":"trigger","target":"agent"},{"id":"e2","source":"agent","target":"end"}]}'::jsonb),
  ('new-website-lead','New Website Lead','Route website leads into a qualification task.','NEW_LEAD',
   '{"nodes":[{"id":"trigger","type":"TRIGGER","label":"Website Lead","position":{"x":80,"y":120},"config":{"conditions":[{"field":"lead.source","operator":"equals","value":"website"}]}},{"id":"task","type":"TASK","label":"Create Website Lead Task","position":{"x":320,"y":120},"config":{"lead_id_path":"lead.id","title":"Website lead qualification","priority":"high"}},{"id":"end","type":"END","label":"End","position":{"x":560,"y":120},"config":{}}],"edges":[{"id":"e1","source":"trigger","target":"task"},{"id":"e2","source":"task","target":"end"}]}'::jsonb),
  ('no-response-followup','No Response Follow-up','Wait and create a controlled follow-up.','FOLLOWUP_DUE',
   '{"nodes":[{"id":"trigger","type":"TRIGGER","label":"Follow-up Due","position":{"x":60,"y":120},"config":{"conditions":[]}},{"id":"wait","type":"WAIT","label":"Wait 24 Hours","position":{"x":260,"y":120},"config":{"delay_seconds":86400}},{"id":"follow","type":"FOLLOW_UP","label":"Create Follow-up","position":{"x":470,"y":120},"config":{"lead_id_path":"lead.id","title":"No-response follow-up","priority":"medium"}},{"id":"end","type":"END","label":"End","position":{"x":690,"y":120},"config":{}}],"edges":[{"id":"e1","source":"trigger","target":"wait"},{"id":"e2","source":"wait","target":"follow"},{"id":"e3","source":"follow","target":"end"}]}'::jsonb),
  ('document-collection','Document Collection','Create document collection work for SAV-Document.','LEAD_STATUS_CHANGED',
-  '{"nodes":[{"id":"trigger","type":"TRIGGER","label":"Lead Status Changed","position":{"x":60,"y":120},"config":{"conditions":[]}},{"id":"agent","type":"AI_AGENT","label":"SAV-Document","position":{"x":280,"y":120},"config":{"action":"CREATE_TASK","target_type":"lead","target_id_path":"lead.id","payload":{"title":"Collect missing documents"}}},{"id":"end","type":"END","label":"End","position":{"x":520,"y":120},"config":{}}],"edges":[{"id":"e1","source":"trigger","target":"agent"},{"id":"e2","source":"agent","target":"end"}]}'::jsonb),
+  '{"nodes":[{"id":"trigger","type":"TRIGGER","label":"Lead Status Changed","position":{"x":60,"y":120},"config":{"conditions":[]}},{"id":"agent","type":"AI_AGENT","label":"SAV-Document","position":{"x":280,"y":120},"config":{"agent_slug":"sav-document","action":"CREATE_TASK","target_type":"lead","target_id_path":"lead.id","payload":{"title":"Collect missing documents"}}},{"id":"end","type":"END","label":"End","position":{"x":520,"y":120},"config":{}}],"edges":[{"id":"e1","source":"trigger","target":"agent"},{"id":"e2","source":"agent","target":"end"}]}'::jsonb),
  ('high-value-lead-escalation','High Value Lead Escalation','Escalate leads over the configured threshold.','NEW_LEAD',
   '{"nodes":[{"id":"trigger","type":"TRIGGER","label":"New Lead","position":{"x":60,"y":120},"config":{"conditions":[]}},{"id":"condition","type":"CONDITION","label":"Value > 500000","position":{"x":260,"y":120},"config":{"condition":{"field":"lead.value","operator":"greater_than","value":500000}}},{"id":"approval","type":"HUMAN_APPROVAL","label":"Manager Approval","position":{"x":480,"y":80},"config":{"approver_role":"manager","reason":"High value lead","risk_level":"high"}},{"id":"end","type":"END","label":"End","position":{"x":700,"y":120},"config":{}}],"edges":[{"id":"e1","source":"trigger","target":"condition"},{"id":"e2","source":"condition","target":"approval","branch":"true"},{"id":"e3","source":"condition","target":"end","branch":"false"},{"id":"e4","source":"approval","target":"end","branch":"approved"}]}'::jsonb),
  ('customer-support-escalation','Customer Support Escalation','Escalate support conversations requiring a human.','CONVERSATION_RECEIVED',
-  '{"nodes":[{"id":"trigger","type":"TRIGGER","label":"Conversation Received","position":{"x":60,"y":120},"config":{"conditions":[]}},{"id":"escalate","type":"ESCALATION","label":"Support Escalation","position":{"x":300,"y":120},"config":{"reason":"CUSTOMER_REQUESTED_HUMAN","lead_id_path":"lead.id"}},{"id":"end","type":"END","label":"End","position":{"x":540,"y":120},"config":{}}],"edges":[{"id":"e1","source":"trigger","target":"escalate"},{"id":"e2","source":"escalate","target":"end"}]}'::jsonb),
+  '{"nodes":[{"id":"trigger","type":"TRIGGER","label":"Conversation Received","position":{"x":60,"y":120},"config":{"conditions":[]}},{"id":"escalate","type":"ESCALATION","label":"Support Escalation","position":{"x":300,"y":120},"config":{"agent_slug":"sav-support","reason":"CUSTOMER_REQUESTED_HUMAN","lead_id_path":"lead.id"}},{"id":"end","type":"END","label":"End","position":{"x":540,"y":120},"config":{}}],"edges":[{"id":"e1","source":"trigger","target":"escalate"},{"id":"e2","source":"escalate","target":"end"}]}'::jsonb),
  ('task-reminder','Task Reminder','Persist a wait and reminder follow-up.','REMINDER_DUE',
   '{"nodes":[{"id":"trigger","type":"TRIGGER","label":"Reminder Due","position":{"x":60,"y":120},"config":{"conditions":[]}},{"id":"follow","type":"FOLLOW_UP","label":"Reminder Follow-up","position":{"x":300,"y":120},"config":{"lead_id_path":"lead.id","title":"Task reminder follow-up"}},{"id":"end","type":"END","label":"End","position":{"x":540,"y":120},"config":{}}],"edges":[{"id":"e1","source":"trigger","target":"follow"},{"id":"e2","source":"follow","target":"end"}]}'::jsonb),
  ('ai-human-handoff','AI-to-Human Handoff','Pause AI work for explicit human approval.','AI_ESCALATION',
