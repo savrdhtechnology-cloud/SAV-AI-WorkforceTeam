@@ -1,0 +1,1 @@
+import ExecutionList from "../ExecutionList";export default function WorkflowExecutionsPage(){return <ExecutionList/>;}
