@@ -36,6 +36,14 @@ export type TaskContext = {
     company: string | null;
     status: string;
   }>;
+  contacts: Array<{
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    company: string | null;
+    email: string | null;
+    phone: string | null;
+  }>;
   followup_types: string[];
   permissions: {
     create: boolean;
@@ -106,6 +114,7 @@ export type TaskDraft = {
   dueAt: string;
   reminderAt: string;
   leadId: string;
+  contactId: string;
   notes: string;
   assigneeType: TaskAssigneeType;
   assignedTo: string;
@@ -121,6 +130,7 @@ export const EMPTY_TASK_DRAFT: TaskDraft = {
   dueAt: "",
   reminderAt: "",
   leadId: "",
+  contactId: "",
   notes: "",
   assigneeType: "human",
   assignedTo: "",
