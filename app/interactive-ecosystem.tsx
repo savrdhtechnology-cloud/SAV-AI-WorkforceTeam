@@ -32,11 +32,25 @@ export default function InteractiveEcosystem() {
           <motion.i animate={{ scale: [1, 2.15, 1], opacity: [.22, 0, .22] }} transition={{ duration: 7, delay: 1, repeat: Infinity }} />
         </div>
 
-        <motion.div className="ecosystem-core" whileHover={{ scale: 1.05 }}>
-          <div className="brand-mark"><span/><span/><span/></div>
-          <strong>SAV</strong>
-          <small>AI CORE</small>
-        </motion.div>
+        <div className="ecosystem-topology">
+          <div className="topology-label">LIVE CONNECTION MESH</div>
+          <motion.span className="orbit-node orbit-node-1" animate={{ y:[0,-6,0] }} transition={{ duration:4.5, repeat:Infinity }}>WhatsApp</motion.span>
+          <motion.span className="orbit-node orbit-node-2" animate={{ x:[0,7,0] }} transition={{ duration:5.2, repeat:Infinity }}>Voice</motion.span>
+          <motion.span className="orbit-node orbit-node-3" animate={{ y:[0,6,0] }} transition={{ duration:4.8, repeat:Infinity }}>CRM</motion.span>
+          <motion.span className="orbit-node orbit-node-4" animate={{ x:[0,-7,0] }} transition={{ duration:5.6, repeat:Infinity }}>Supabase</motion.span>
+
+          <motion.div className="ecosystem-core" whileHover={{ scale: 1.05 }}>
+            <div className="brand-mark"><span/><span/><span/></div>
+            <strong>SAV</strong>
+            <small>AI CORE</small>
+          </motion.div>
+
+          <div className="mesh-metrics">
+            <div><b>8</b><span>Protocol adapters</span></div>
+            <div><b>24×7</b><span>Active orchestration</span></div>
+            <div><b>Live</b><span>Bi-directional sync</span></div>
+          </div>
+        </div>
 
         <div className="ecosystem-grid">
           {integrations.map((item) => {
