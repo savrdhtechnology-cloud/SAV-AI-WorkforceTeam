@@ -160,6 +160,22 @@ as $$
   order by m.created_at limit 1;
 $$;
 
+create or replace function sav_ai_crm.agent_runtime_id()
+returns uuid language plpgsql stable security definer
+set search_path=public,sav_ai_crm
+as $
+declare raw text;
+begin
+ raw:=nullif(auth.jwt()->'app_metadata'->>'sav_ai_agent_id','');
+ if raw is null then return null; end if;
+ return raw::uuid;
+exception when invalid_text_representation then
+ return null;
+end $;
+
+revoke all on function sav_ai_crm.agent_runtime_id() from public,anon;
+grant execute on function sav_ai_crm.agent_runtime_id() to authenticated;
+
 create or replace function sav_ai_crm.agent_is_admin(p_role text)
 returns boolean language sql immutable
 as $$ select p_role in ('owner','admin'); $$;
@@ -446,11 +462,22 @@ set search_path=public,sav_ai_crm
 as $$
 declare
  me sav_ai_crm.members; agent sav_ai_crm.ai_agents; cap sav_ai_crm.ai_agent_capabilities;
- action_id uuid; approval_id uuid; needs_approval boolean;
+ action_id uuid; approval_id uuid; needs_approval boolean; runtime_agent_id uuid; effective_workspace uuid;
 begin
  me:=sav_ai_crm.agent_current_member();
- if me.id is null then raise exception 'CRM membership required'; end if;
- select * into agent from sav_ai_crm.ai_agents where id=p_agent_id and workspace_id=me.workspace_id;
+ runtime_agent_id:=sav_ai_crm.agent_runtime_id();
+
+ if runtime_agent_id is not null then
+   if runtime_agent_id<>p_agent_id then raise exception 'Agent identity mismatch'; end if;
+   select * into agent from sav_ai_crm.ai_agents where id=runtime_agent_id;
+   if agent.id is null then raise exception 'Authenticated agent not found'; end if;
+   effective_workspace:=agent.workspace_id;
+ else
+   if me.id is null or me.role='viewer' then raise exception 'CRM action permission required'; end if;
+   effective_workspace:=me.workspace_id;
+   select * into agent from sav_ai_crm.ai_agents where id=p_agent_id and workspace_id=effective_workspace;
+ end if;
+
  if agent.id is null then raise exception 'Agent not found'; end if;
  if agent.status<>'active' then raise exception 'Agent is not active'; end if;
 
@@ -458,11 +485,11 @@ begin
  where agent_id=agent.id and capability=p_action and is_enabled=true;
  if cap.id is null then raise exception 'Agent capability denied'; end if;
 
- if p_target_type='lead' and p_target_id is not null and not exists(select 1 from sav_ai_crm.leads where id=p_target_id and workspace_id=me.workspace_id) then
+ if p_target_type='lead' and p_target_id is not null and not exists(select 1 from sav_ai_crm.leads where id=p_target_id and workspace_id=effective_workspace) then
    raise exception 'Lead is outside this workspace';
- elsif p_target_type='task' and p_target_id is not null and not exists(select 1 from sav_ai_crm.tasks where id=p_target_id and workspace_id=me.workspace_id) then
+ elsif p_target_type='task' and p_target_id is not null and not exists(select 1 from sav_ai_crm.tasks where id=p_target_id and workspace_id=effective_workspace) then
    raise exception 'Task is outside this workspace';
- elsif p_target_type='conversation' and p_target_id is not null and not exists(select 1 from sav_ai_crm.conversations where id=p_target_id and workspace_id=me.workspace_id) then
+ elsif p_target_type='conversation' and p_target_id is not null and not exists(select 1 from sav_ai_crm.conversations where id=p_target_id and workspace_id=effective_workspace) then
    raise exception 'Conversation is outside this workspace';
  end if;
 
@@ -471,17 +498,17 @@ begin
  insert into sav_ai_crm.ai_agent_actions(
    workspace_id,agent_id,requested_by,action,target_type,target_id,payload,risk_level,approval_required,status
  ) values(
-   me.workspace_id,agent.id,me.id,p_action,p_target_type,p_target_id,coalesce(p_payload,'{}'),cap.risk_level,needs_approval,
+   effective_workspace,agent.id,case when runtime_agent_id is null then me.id else null end,p_action,p_target_type,p_target_id,coalesce(p_payload,'{}'),cap.risk_level,needs_approval,
    case when needs_approval then 'waiting_approval' else 'approved' end
  ) returning id into action_id;
 
  if needs_approval then
    insert into sav_ai_crm.ai_agent_approvals(workspace_id,action_id,requested_by,status)
-   values(me.workspace_id,action_id,me.id,'pending') returning id into approval_id;
+   values(effective_workspace,action_id,case when runtime_agent_id is null then me.id else null end,'pending') returning id into approval_id;
  end if;
 
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
- values(me.workspace_id,auth.uid(),'agent.action.request','ai_agent_action',action_id,
+ values(effective_workspace,auth.uid(),'agent.action.request','ai_agent_action',action_id,
    jsonb_build_object('agent_id',agent.id,'capability',p_action,'risk',cap.risk_level,'approval_required',needs_approval));
 
  return jsonb_build_object('action_id',action_id,'risk_level',cap.risk_level,'approval_required',needs_approval,'approval_id',approval_id,
