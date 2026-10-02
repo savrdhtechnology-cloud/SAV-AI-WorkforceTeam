@@ -554,7 +554,7 @@ begin
    if a.agent_id<>runtime_agent_id then raise exception 'Agent identity mismatch'; end if;
    effective_workspace:=a.workspace_id;
  else
-   effective_workspace:=effective_workspace;
+   effective_workspace:=me.workspace_id;
    if a.workspace_id<>effective_workspace then raise exception 'Action is outside this workspace'; end if;
  end if;
 
