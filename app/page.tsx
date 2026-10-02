@@ -207,6 +207,34 @@ function CommandPreview() {
   );
 }
 
+
+
+function PulseBand({ label, items }: { label: string; items: string[] }) {
+  return (
+    <motion.div
+      className="pulse-band"
+      initial={{ opacity: 0, y: 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.4 }}
+      transition={{ duration: 0.55 }}
+    >
+      <div className="pulse-band-label"><span /> {label}</div>
+      <div className="pulse-band-track">
+        {[...items, ...items].map((item, i) => (
+          <motion.span
+            key={item + i}
+            animate={{ opacity: [0.55, 1, 0.55] }}
+            transition={{ duration: 2.4 + (i % 3) * 0.5, repeat: Infinity, delay: (i % 5) * 0.16 }}
+          >
+            <i />
+            {item}
+          </motion.span>
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
 function RevealSection({
   children,
   className,
@@ -335,11 +363,31 @@ export default function Home() {
         </motion.div>
       </RevealSection>
 
+      <PulseBand
+        label="LIVE WORKFORCE TELEMETRY"
+        items={["42 leads queued", "86 actions ready", "24×7 support online", "CRM sync active", "Approval gates armed", "Knowledge memory connected"]}
+      />
+
       <AgentsShowcase />
+
+      <PulseBand
+        label="AGENT COORDINATION BUS"
+        items={["SAV-Sales active", "SAV-Support active", "SAV-Operations active", "Shared context live", "Audit trail recording", "Escalation routing ready"]}
+      />
 
       <InteractiveWorkflow />
 
+      <PulseBand
+        label="EXECUTION FABRIC"
+        items={["Trigger received", "Policy evaluated", "Channel selected", "Action executed", "CRM updated", "Outcome recorded"]}
+      />
+
       <InteractiveEcosystem />
+
+      <PulseBand
+        label="CONNECTED SYSTEM STATUS"
+        items={["WhatsApp online", "Voice online", "Email online", "Supabase online", "Webhooks online", "REST API online"]}
+      />
 
       <RevealSection className="section security-section" id="security">
         <motion.div className="security-card" variants={fadeUp}>
