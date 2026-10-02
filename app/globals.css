@@ -82,3 +82,105 @@
 }
 
 /* production-refresh: animated landing v2 */
+
+
+/* Full-page visible animation layer */
+main{position:relative;overflow:hidden}
+.ambient-stage{position:fixed;inset:0;pointer-events:none;z-index:-4;overflow:hidden}
+.ambient-orb{position:absolute;border-radius:50%;filter:blur(70px);opacity:.22}
+.orb-a{width:360px;height:360px;background:#5B8CFF;top:8%;left:-90px;animation:orbA 16s ease-in-out infinite alternate}
+.orb-b{width:320px;height:320px;background:#49E3FF;right:-70px;top:34%;animation:orbB 18s ease-in-out infinite alternate}
+.orb-c{width:280px;height:280px;background:#7A5CFF;left:38%;bottom:-110px;animation:orbC 20s ease-in-out infinite alternate}
+.ambient-line{position:absolute;width:120vw;height:1px;left:-10vw;background:linear-gradient(90deg,transparent,rgba(73,227,255,.18),transparent)}
+.line-a{top:28%;transform:rotate(-7deg);animation:lineShift 11s linear infinite}
+.line-b{top:68%;transform:rotate(5deg);animation:lineShiftReverse 14s linear infinite}
+.particle-field{position:absolute;inset:0}
+.particle{position:absolute;width:4px;height:4px;border-radius:50%;background:#49E3FF;box-shadow:0 0 12px rgba(73,227,255,.85);opacity:.55;animation:particleFloat 9s linear infinite}
+.p-1{left:1%;top:3%;animation-delay:-0s;animation-duration:7s}
+.p-2{left:38%;top:56%;animation-delay:-1.1s;animation-duration:9s}
+.p-3{left:75%;top:18%;animation-delay:-2.2s;animation-duration:11s}
+.p-4{left:15%;top:71%;animation-delay:-3.3000000000000003s;animation-duration:13s}
+.p-5{left:52%;top:33%;animation-delay:-4.4s;animation-duration:15s}
+.p-6{left:89%;top:86%;animation-delay:-5.5s;animation-duration:7s}
+.p-7{left:29%;top:48%;animation-delay:-0s;animation-duration:9s}
+.p-8{left:66%;top:10%;animation-delay:-1.1s;animation-duration:11s}
+.p-9{left:6%;top:63%;animation-delay:-2.2s;animation-duration:13s}
+.p-10{left:43%;top:25%;animation-delay:-3.3000000000000003s;animation-duration:15s}
+.p-11{left:80%;top:78%;animation-delay:-4.4s;animation-duration:7s}
+.p-12{left:20%;top:40%;animation-delay:-5.5s;animation-duration:9s}
+.p-13{left:57%;top:93%;animation-delay:-0s;animation-duration:11s}
+.p-14{left:94%;top:55%;animation-delay:-1.1s;animation-duration:13s}
+.p-15{left:34%;top:17%;animation-delay:-2.2s;animation-duration:15s}
+.p-16{left:71%;top:70%;animation-delay:-3.3000000000000003s;animation-duration:7s}
+.p-17{left:11%;top:32%;animation-delay:-4.4s;animation-duration:9s}
+.p-18{left:48%;top:85%;animation-delay:-5.5s;animation-duration:11s}
+
+.hero h1 span{background:linear-gradient(90deg,#49E3FF 0%,#5B8CFF 45%,#9B8CFF 78%,#49E3FF 100%);background-size:220% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:textShimmer 5s linear infinite}
+.eyebrow,.section-kicker{animation:kickerGlow 2.8s ease-in-out infinite}
+.hero-copy>p{animation:softFade 4s ease-in-out infinite alternate}
+.console-shell{position:relative}
+.console-shell:after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,transparent,rgba(73,227,255,.03),transparent);transform:translateY(-100%);animation:consoleScan 4.8s linear infinite}
+.scan-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#49E3FF;box-shadow:0 0 10px rgba(73,227,255,.85);margin-right:6px;animation:scanDot 1.2s ease-in-out infinite}
+.live-strip{position:relative;overflow:hidden}
+.live-strip:after{content:"";position:absolute;left:-30%;top:0;width:25%;height:100%;background:linear-gradient(90deg,transparent,rgba(73,227,255,.09),transparent);animation:stripSweep 3s linear infinite}
+.channel-marquee{overflow:hidden;mask-image:linear-gradient(90deg,transparent 0,#000 8%,#000 92%,transparent 100%);-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 8%,#000 92%,transparent 100%)}
+.channel-track{display:flex;width:max-content;gap:52px;animation:marquee 18s linear infinite;padding-inline:26px}
+.channel-track span{color:#91ABC3;font-weight:700;font-size:12px;white-space:nowrap}
+.feature-card{position:relative;overflow:hidden}
+.feature-card:before,.agent-card:before{content:"";position:absolute;inset:-40%;background:conic-gradient(from 0deg,transparent,rgba(73,227,255,.08),transparent 28%);animation:cardSpin 10s linear infinite;opacity:.75}
+.feature-card>*,.agent-card>*{position:relative;z-index:1}
+.feature-grid .feature-card:nth-child(2n){animation-delay:.35s}
+.feature-grid .feature-card:nth-child(3n){animation-delay:.7s}
+.agent-cards{perspective:1000px}
+.agent-card{transform-style:preserve-3d}
+.agent-card:nth-child(1){animation:cardFloatA 6s ease-in-out infinite}
+.agent-card:nth-child(2){animation:cardFloatB 6.7s ease-in-out infinite}
+.agent-card:nth-child(3){animation:cardFloatC 7.2s ease-in-out infinite}
+.workflow-panel{position:relative;overflow:hidden}
+.workflow-panel:after{content:"";position:absolute;width:280px;height:280px;border:1px solid rgba(73,227,255,.1);border-radius:50%;right:-140px;top:-140px;animation:ringPulse 6s ease-in-out infinite}
+.flow-branches{position:relative}
+.flow-branches:after{content:"";position:absolute;left:50%;top:-1px;width:8px;height:8px;border-radius:50%;background:#49E3FF;box-shadow:0 0 12px rgba(73,227,255,.8);animation:branchTravel 2.8s linear infinite}
+.integration-cloud:before,.integration-cloud:after{content:"";position:absolute;border:1px solid rgba(73,227,255,.12);border-radius:50%;inset:50%;transform:translate(-50%,-50%)}
+.integration-cloud:before{width:260px;height:260px;animation:orbitRing 10s linear infinite}
+.integration-cloud:after{width:360px;height:360px;animation:orbitRingReverse 15s linear infinite}
+.cloud-core{position:relative;z-index:2}
+.integration-pill{z-index:3}
+.security-card{position:relative;overflow:hidden}
+.security-card:before{content:"";position:absolute;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(91,140,255,.1),transparent 68%);left:-190px;bottom:-230px;animation:securityGlow 8s ease-in-out infinite alternate}
+.cta-section h2{background:linear-gradient(90deg,#F5FAFF,#CFE9FF,#F5FAFF);background-size:200% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:textShimmer 6s linear infinite}
+footer{animation:footerFloat 6s ease-in-out infinite}
+
+@keyframes orbA{0%{transform:translate(0,0) scale(1)}100%{transform:translate(140px,100px) scale(1.16)}}
+@keyframes orbB{0%{transform:translate(0,0) scale(1)}100%{transform:translate(-130px,120px) scale(.92)}}
+@keyframes orbC{0%{transform:translate(0,0) scale(.9)}100%{transform:translate(70px,-130px) scale(1.2)}}
+@keyframes lineShift{0%{transform:translateX(-10%) rotate(-7deg)}100%{transform:translateX(10%) rotate(-7deg)}}
+@keyframes lineShiftReverse{0%{transform:translateX(10%) rotate(5deg)}100%{transform:translateX(-10%) rotate(5deg)}}
+@keyframes particleFloat{0%{transform:translateY(0) scale(.7);opacity:.15}50%{opacity:.8}100%{transform:translateY(-140px) scale(1.2);opacity:0}}
+@keyframes textShimmer{to{background-position:220% center}}
+@keyframes kickerGlow{0%,100%{text-shadow:0 0 0 rgba(73,227,255,0)}50%{text-shadow:0 0 16px rgba(73,227,255,.28)}}
+@keyframes softFade{0%{opacity:.82}100%{opacity:1}}
+@keyframes consoleScan{0%{transform:translateY(-100%)}100%{transform:translateY(100%)}}
+@keyframes scanDot{0%,100%{transform:scale(.8);opacity:.55}50%{transform:scale(1.3);opacity:1}}
+@keyframes stripSweep{to{left:120%}}
+@keyframes marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@keyframes cardSpin{to{transform:rotate(360deg)}}
+@keyframes cardFloatA{0%,100%{transform:translateY(0) rotateX(0)}50%{transform:translateY(-8px) rotateX(1.5deg)}}
+@keyframes cardFloatB{0%,100%{transform:translateY(0) rotateY(0)}50%{transform:translateY(7px) rotateY(-1.8deg)}}
+@keyframes cardFloatC{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-6px) scale(1.012)}}
+@keyframes ringPulse{0%,100%{transform:scale(.85);opacity:.25}50%{transform:scale(1.15);opacity:.6}}
+@keyframes branchTravel{0%{left:0}50%{left:calc(50% - 4px)}100%{left:calc(100% - 8px)}}
+@keyframes orbitRing{to{transform:translate(-50%,-50%) rotate(360deg)}}
+@keyframes orbitRingReverse{to{transform:translate(-50%,-50%) rotate(-360deg)}}
+@keyframes securityGlow{from{transform:translate(0,0) scale(1)}to{transform:translate(80px,-40px) scale(1.15)}}
+@keyframes footerFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+
+@media(max-width:980px){
+  .channel-track{gap:34px}
+  .ambient-orb{opacity:.16}
+}
+@media(max-width:620px){
+  .particle:nth-child(n+10){display:none}
+  .integration-cloud:after{width:300px;height:300px}
+  .integration-cloud:before{width:210px;height:210px}
+  .channel-track{gap:28px}
+}
