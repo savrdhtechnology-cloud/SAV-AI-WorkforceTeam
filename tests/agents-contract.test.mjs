@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const migration=readFileSync(new URL("../supabase/migrations/20261002130000_ai_agents_phase2.sql",import.meta.url),"utf8");
+const migration=readFileSync(new URL("../supabase/migrations/20261002_zz_ai_agents_phase2.sql",import.meta.url),"utf8");
 const types=readFileSync(new URL("../app/crm/agents/agent-types.ts",import.meta.url),"utf8");
 const provider=readFileSync(new URL("../lib/ai/provider.ts",import.meta.url),"utf8");
 const moduleUi=readFileSync(new URL("../app/crm/agents/AgentsModule.tsx",import.meta.url),"utf8");
