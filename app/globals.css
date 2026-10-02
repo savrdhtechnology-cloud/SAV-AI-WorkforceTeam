@@ -417,3 +417,45 @@ footer{animation:footerFloat 6s ease-in-out infinite}
   .agents-all-grid{grid-template-columns:1fr}
   .agent-modal-info{grid-template-columns:1fr}
 }
+
+
+/* Layout fixes for agent cards + integration whitespace */
+.agent-slider-grid article,.agents-all-grid article{min-height:250px;display:flex;flex-direction:column}
+.agent-slider-grid article>p,.agents-all-grid article>p{min-height:0;margin-bottom:0}
+.agent-tags{margin-top:auto;padding-top:14px}
+.agent-card-bottom{margin-top:12px}
+.agent-card-bottom b{max-width:62%;line-height:1.35}
+.agent-card-bottom em{flex-shrink:0}
+.agent-card-stat{position:static!important;margin-top:14px!important;display:block!important}
+.agent-card-stat,.agent-slider-grid article>small,.agents-all-grid article>small{white-space:normal}
+.agents-showcase-section .agent-card{min-height:250px}
+.agents-showcase-section .agent-card p{min-height:0!important}
+
+.ecosystem-topology{position:relative;z-index:2;min-height:360px;display:flex;align-items:center;justify-content:center;margin-bottom:12px}
+.topology-label{position:absolute;top:4px;left:50%;transform:translateX(-50%);font:800 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.16em;color:#6687a2}
+.orbit-node{position:absolute;z-index:3;border:1px solid #245275;background:#0a2035;color:#9fbbd2;border-radius:999px;padding:7px 10px;font:800 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:0 8px 24px rgba(0,0,0,.22)}
+.orbit-node-1{top:62px;left:50%;transform:translateX(-50%)}
+.orbit-node-2{right:20%;top:50%;transform:translateY(-50%)}
+.orbit-node-3{bottom:56px;left:50%;transform:translateX(-50%)}
+.orbit-node-4{left:20%;top:50%;transform:translateY(-50%)}
+.mesh-metrics{position:absolute;left:50%;bottom:4px;transform:translateX(-50%);display:flex;gap:10px}
+.mesh-metrics div{min-width:132px;border:1px solid #1d405f;background:#081b2d;border-radius:10px;padding:10px 12px;text-align:center}
+.mesh-metrics b{display:block;color:#e5f6ff;font-size:12px}
+.mesh-metrics span{display:block;margin-top:4px;color:#6e8da6;font:700 7.5px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace}
+.ecosystem-grid{margin-top:22px!important}
+.ecosystem-panel{padding-top:34px!important}
+
+@media(max-width:980px){
+  .orbit-node-2{right:8%}
+  .orbit-node-4{left:8%}
+  .mesh-metrics{position:static;transform:none;margin-top:210px;flex-wrap:wrap;justify-content:center}
+  .ecosystem-topology{min-height:430px}
+}
+@media(max-width:620px){
+  .agent-slider-grid article,.agents-all-grid article{min-height:auto}
+  .ecosystem-topology{min-height:390px}
+  .orbit-node-2{right:1%}
+  .orbit-node-4{left:1%}
+  .mesh-metrics{margin-top:220px;gap:6px}
+  .mesh-metrics div{min-width:110px}
+}
