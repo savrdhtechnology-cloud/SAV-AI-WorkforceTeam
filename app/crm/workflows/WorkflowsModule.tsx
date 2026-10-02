@@ -74,7 +74,9 @@ export default function WorkflowsModule({focusedId}:{focusedId?:string}){
     finally{setSaving(false);}
   }
   async function setStatus(status:"active"|"paused"|"disabled"){
-    if(!selected)return;try{await workflowStatus(selected,status);setSuccess(`Workflow ${status}.`);await refresh(selected);}catch(e){setError(e instanceof Error?e.message:"Status change failed.");}
+    if(!selected)return;
+    const operation=status==="active"?"enable":status==="paused"?"pause":"disable";
+    try{await workflowStatus(selected,operation);setSuccess(`Workflow ${status}.`);await refresh(selected);}catch(e){setError(e instanceof Error?e.message:"Status change failed.");}
   }
   async function duplicate(){
     if(!selected)return;try{const r=await duplicateWorkflow(selected);setSuccess("Workflow duplicated.");await refresh(r.id);}catch(e){setError(e instanceof Error?e.message:"Duplicate failed.");}
