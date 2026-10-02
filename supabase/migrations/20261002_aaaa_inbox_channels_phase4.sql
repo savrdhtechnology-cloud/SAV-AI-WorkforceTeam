@@ -703,7 +703,7 @@ create or replace function public.sav_ai_crm_persist_inbound_message(
 ) returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
 as $$
-declare acc sav_ai_crm.channel_accounts; cid uuid; mid uuid; lead_id uuid; contact_id uuid; duplicate_mid uuid;
+declare acc sav_ai_crm.channel_accounts; cid uuid; mid uuid; resolved_lead_id uuid; resolved_contact_id uuid; duplicate_mid uuid;
 begin
  select * into acc from sav_ai_crm.channel_accounts where id=p_channel_account_id and workspace_id=p_workspace_id and channel=p_channel and provider=p_provider and status='connected';
  if acc.id is null then raise exception 'CHANNEL_PROVIDER_NOT_CONFIGURED'; end if;
@@ -719,21 +719,21 @@ begin
    return jsonb_build_object('duplicate',true,'provider_event_id',p_provider_event_id);
  end if;
 
- select id into contact_id from sav_ai_crm.contacts where workspace_id=p_workspace_id and (phone=p_sender or lower(email)=lower(p_sender)) order by updated_at desc limit 1;
- if contact_id is null then
-   select id into lead_id from sav_ai_crm.leads where workspace_id=p_workspace_id and (phone=p_sender or lower(email)=lower(p_sender)) order by updated_at desc limit 1;
+ select ct.id into resolved_contact_id from sav_ai_crm.contacts ct where ct.workspace_id=p_workspace_id and (ct.phone=p_sender or lower(ct.email)=lower(p_sender)) order by ct.updated_at desc limit 1;
+ if resolved_contact_id is null then
+   select l.id into resolved_lead_id from sav_ai_crm.leads l where l.workspace_id=p_workspace_id and (l.phone=p_sender or lower(l.email)=lower(p_sender)) order by l.updated_at desc limit 1;
  end if;
 
- select id into cid from sav_ai_crm.conversations
- where workspace_id=p_workspace_id and channel=p_channel and archived_at is null
-   and ((p_external_thread_id is not null and external_thread_id=p_external_thread_id)
-     or (contact_id is not null and conversations.contact_id=contact_id)
-     or (lead_id is not null and conversations.lead_id=lead_id))
+ select cv.id into cid from sav_ai_crm.conversations cv
+ where cv.workspace_id=p_workspace_id and cv.channel=p_channel and cv.archived_at is null
+   and ((p_external_thread_id is not null and cv.external_thread_id=p_external_thread_id)
+     or (resolved_contact_id is not null and cv.contact_id=resolved_contact_id)
+     or (resolved_lead_id is not null and cv.lead_id=resolved_lead_id))
  order by last_message_at desc nulls last,created_at desc limit 1;
 
  if cid is null then
   insert into sav_ai_crm.conversations(workspace_id,contact_id,lead_id,channel,external_thread_id,status,priority,unread_count,last_message_at,last_message_preview,created_at,updated_at)
-  values(p_workspace_id,contact_id,lead_id,p_channel,p_external_thread_id,'open','medium',0,p_received_at,left(coalesce(p_body,''),180),now(),now()) returning id into cid;
+  values(p_workspace_id,resolved_contact_id,resolved_lead_id,p_channel,p_external_thread_id,'open','medium',0,p_received_at,left(coalesce(p_body,''),180),now(),now()) returning id into cid;
   insert into sav_ai_crm.conversation_activity(workspace_id,conversation_id,activity_type,title,metadata)
   values(p_workspace_id,cid,'conversation_created','Conversation created from inbound message',jsonb_build_object('provider',p_provider,'channel',p_channel));
  end if;
@@ -755,7 +755,7 @@ begin
  insert into sav_ai_crm.audit_logs(workspace_id,action,entity_type,entity_id,metadata)
  values(p_workspace_id,'inbox.message.received','message',mid,jsonb_build_object('conversation_id',cid,'provider',p_provider,'channel',p_channel));
  update sav_ai_crm.channel_webhook_events set processing_status='processed',processed_at=now() where workspace_id=p_workspace_id and provider=p_provider and provider_event_id=p_provider_event_id;
- return jsonb_build_object('duplicate',false,'conversation_id',cid,'message_id',mid,'lead_id',lead_id,'contact_id',contact_id);
+ return jsonb_build_object('duplicate',false,'conversation_id',cid,'message_id',mid,'lead_id',resolved_lead_id,'contact_id',resolved_contact_id);
 end $$;
 
 revoke all on function public.sav_ai_crm_resolve_channel_account(text,text,text,text) from public,anon,authenticated;
@@ -883,8 +883,58 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- Channel account metadata management (credentials remain server-side refs)
+-- ---------------------------------------------------------------------------
+create or replace function public.sav_ai_crm_channel_accounts()
+returns jsonb language plpgsql stable security definer
+set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members;
+begin
+ me:=sav_ai_crm.inbox_current_member();
+ if me.id is null then raise exception 'CRM membership required'; end if;
+ return coalesce((select jsonb_agg(jsonb_build_object(
+   'id',a.id,'channel',a.channel,'provider',a.provider,'display_name',a.display_name,'external_account_id',a.external_account_id,
+   'sender_identity',a.sender_identity,'status',a.status,'public_config',a.public_config,'has_secret_ref',a.secret_ref is not null,
+   'created_at',a.created_at,'updated_at',a.updated_at
+ ) order by a.channel,a.display_name) from sav_ai_crm.channel_accounts a where a.workspace_id=me.workspace_id),'[]'::jsonb);
+end $;
+
+create or replace function public.sav_ai_crm_upsert_channel_account(
+ p_account_id uuid,p_channel text,p_provider text,p_display_name text,p_external_account_id text default null,
+ p_sender_identity text default null,p_status text default 'disconnected',p_public_config jsonb default '{}'::jsonb,p_secret_ref text default null
+) returns uuid language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members; aid uuid;
+begin
+ me:=sav_ai_crm.inbox_current_member();
+ if me.id is null or me.role not in ('owner','admin') then raise exception 'Channel management requires owner or admin'; end if;
+ if p_channel not in ('whatsapp','email','sms','voice','webchat') then raise exception 'Invalid channel'; end if;
+ if p_status not in ('connected','disconnected','error','disabled') then raise exception 'Invalid channel status'; end if;
+ if length(trim(coalesce(p_provider,'')))<2 or length(trim(coalesce(p_display_name,'')))<2 then raise exception 'Provider and display name required'; end if;
+ if p_secret_ref is not null and (length(p_secret_ref)>180 or p_secret_ref ~ '[[:space:]]') then raise exception 'Invalid server secret reference'; end if;
+ if p_account_id is null then
+   insert into sav_ai_crm.channel_accounts(workspace_id,channel,provider,display_name,external_account_id,sender_identity,status,public_config,secret_ref,created_by,updated_by)
+   values(me.workspace_id,p_channel,trim(p_provider),trim(p_display_name),nullif(trim(coalesce(p_external_account_id,'')),''),nullif(trim(coalesce(p_sender_identity,'')),''),p_status,coalesce(p_public_config,'{}'),nullif(trim(coalesce(p_secret_ref,'')),''),me.id,me.id)
+   returning id into aid;
+ else
+   update sav_ai_crm.channel_accounts set channel=p_channel,provider=trim(p_provider),display_name=trim(p_display_name),
+     external_account_id=nullif(trim(coalesce(p_external_account_id,'')),''),sender_identity=nullif(trim(coalesce(p_sender_identity,'')),''),
+     status=p_status,public_config=coalesce(p_public_config,'{}'),secret_ref=nullif(trim(coalesce(p_secret_ref,'')),''),updated_by=me.id,updated_at=now()
+   where id=p_account_id and workspace_id=me.workspace_id returning id into aid;
+   if aid is null then raise exception 'Channel account not found'; end if;
+ end if;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ values(me.workspace_id,auth.uid(),'inbox.channel.configure','channel_account',aid,jsonb_build_object('channel',p_channel,'provider',p_provider,'status',p_status));
+ return aid;
+end $;
+
+-- ---------------------------------------------------------------------------
 -- Grants
 -- ---------------------------------------------------------------------------
+revoke all on function public.sav_ai_crm_channel_accounts() from public,anon;
+revoke all on function public.sav_ai_crm_upsert_channel_account(uuid,text,text,text,text,text,text,jsonb,text) from public,anon;
 revoke all on function public.sav_ai_crm_inbox_context() from public,anon;
 revoke all on function public.sav_ai_crm_inbox_conversations(text,text,text,boolean,text) from public,anon;
 revoke all on function public.sav_ai_crm_inbox_conversation_detail(uuid) from public,anon;
@@ -901,6 +951,8 @@ revoke all on function public.sav_ai_crm_add_internal_note(uuid,text) from publi
 revoke all on function public.sav_ai_crm_inbox_create_task(uuid,text,text,text,text,timestamptz,timestamptz,text,uuid,uuid) from public,anon;
 revoke all on function public.sav_ai_crm_request_conversation_ai(uuid,uuid,text,text) from public,anon;
 
+grant execute on function public.sav_ai_crm_channel_accounts() to authenticated;
+grant execute on function public.sav_ai_crm_upsert_channel_account(uuid,text,text,text,text,text,text,jsonb,text) to authenticated;
 grant execute on function public.sav_ai_crm_inbox_context() to authenticated;
 grant execute on function public.sav_ai_crm_inbox_conversations(text,text,text,boolean,text) to authenticated;
 grant execute on function public.sav_ai_crm_inbox_conversation_detail(uuid) to authenticated;
