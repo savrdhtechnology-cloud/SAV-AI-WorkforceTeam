@@ -30,6 +30,7 @@ import {
 import { crmSupabase } from "./supabase-client";
 import TasksView from "./tasks/TasksView";
 import AgentsModule from "./agents/AgentsModule";
+import WorkflowsModule from "./workflows/WorkflowsModule";
 import "./crm.css";
 
 type View = "dashboard" | "leads" | "pipeline" | "agents" | "workflows" | "inbox" | "tasks" | "integrations" | "settings";
@@ -74,7 +75,6 @@ export default function CRMPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
   const [integrations, setIntegrations] = useState<any[]>([]);
-  const [workflows, setWorkflows] = useState<any[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [leadModal, setLeadModal] = useState(false);
@@ -115,13 +115,12 @@ export default function CRMPage() {
   }
 
   async function refreshAll() {
-    const [ws, dash, leadRes, agentRes, integrationRes, workflowRes, convoRes] = await Promise.all([
+    const [ws, dash, leadRes, agentRes, integrationRes, convoRes] = await Promise.all([
       crmSupabase.rpc("sav_ai_crm_workspace"),
       crmSupabase.rpc("sav_ai_crm_dashboard"),
       crmSupabase.rpc("sav_ai_crm_list_leads", { p_status: null, p_search: null }),
       crmSupabase.rpc("sav_ai_crm_agents"),
       crmSupabase.rpc("sav_ai_crm_integrations"),
-      crmSupabase.rpc("sav_ai_crm_workflows"),
       crmSupabase.rpc("sav_ai_crm_conversations"),
     ]);
     setWorkspace(ws.data);
@@ -129,7 +128,6 @@ export default function CRMPage() {
     setLeads((leadRes.data || []) as Lead[]);
     setAgents(agentRes.data || []);
     setIntegrations(integrationRes.data || []);
-    setWorkflows(workflowRes.data || []);
     setConversations(convoRes.data || []);
   }
 
@@ -279,7 +277,7 @@ export default function CRMPage() {
               )}
               {view === "pipeline" && <PipelineView pipeline={pipeline} />}
               {view === "agents" && <AgentsModule />}
-              {view === "workflows" && <SimpleList title="Workflows" icon={Workflow} items={workflows} empty="No workflows yet. Create workflow definitions once your automation rules are ready." />}
+              {view === "workflows" && <WorkflowsModule />}
               {view === "inbox" && <SimpleList title="Conversations" icon={MessageSquareMore} items={conversations} empty="No conversations yet. Connect WhatsApp, email, SMS, voice or web chat to start receiving threads." />}
               {view === "tasks" && <TasksView onChanged={refreshAll} />}
               {view === "integrations" && <IntegrationsView integrations={integrations} />}
