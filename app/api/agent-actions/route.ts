@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
-import { AgentCapability, ACTION_RISK, requiresHumanApproval } from "@/app/crm/agents/agent-types";
-import { bearerPresent,jsonError,serverSupabase } from "@/lib/ai/server-supabase";
+import { AgentCapability, ACTION_RISK, requiresHumanApproval } from "../../crm/agents/agent-types";
+import { bearerPresent,jsonError,serverSupabase } from "../../../lib/ai/server-supabase";
 
 export async function POST(req:NextRequest){
  if(!bearerPresent(req)) return jsonError("Authentication required",401,"UNAUTHORIZED");
