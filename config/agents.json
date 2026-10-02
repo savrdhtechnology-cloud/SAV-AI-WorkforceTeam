@@ -1,0 +1,12 @@
+{
+  "agents": [
+    {"id":"sav-sales","name":"SAV-Sales","role":"Sales & Telecalling Executive","channels":["voice","whatsapp","sms","email"]},
+    {"id":"sav-bde","name":"SAV-BDE","role":"Business Development Executive","channels":["voice","whatsapp","sms","email"]},
+    {"id":"sav-sales-manager","name":"SAV-Sales Manager","role":"Sales Management","channels":["voice","whatsapp","sms","email"]},
+    {"id":"sav-finance","name":"SAV-Finance","role":"Finance Manager","channels":["whatsapp","sms","email"]},
+    {"id":"sav-credit","name":"SAV-Credit","role":"Credit & Risk Executive","channels":["whatsapp","sms","email"]},
+    {"id":"sav-document","name":"SAV-Document","role":"Documentation Executive","channels":["whatsapp","sms","email"]},
+    {"id":"sav-followup","name":"SAV-Followup","role":"Customer Follow-up Executive","channels":["voice","whatsapp","sms","email"]},
+    {"id":"sav-support","name":"SAV-Support","role":"Customer Support Executive","channels":["voice","whatsapp","sms","email"]}
+  ]
+}
