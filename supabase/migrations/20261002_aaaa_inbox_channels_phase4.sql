@@ -893,6 +893,67 @@ alter table sav_ai_crm.workflow_triggers add constraint workflow_triggers_event_
  'CONVERSATION_CREATED','CONVERSATION_ASSIGNED','MESSAGE_RECEIVED','MESSAGE_DELIVERED','MESSAGE_FAILED','CONVERSATION_CLOSED','CONVERSATION_REOPENED'
 ));
 
+create or replace function public.sav_ai_crm_create_workflow(
+ p_name text,p_description text,p_trigger_type text,p_graph jsonb,p_template_id uuid default null
+) returns uuid language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members; wid uuid; graph jsonb; new_workflow_id uuid;
+begin
+ me:=sav_ai_crm.workflow_current_member();
+ if me.id is null or not sav_ai_crm.workflow_can_manage(me.role) then raise exception 'Workflow creation not permitted'; end if;
+ if length(trim(coalesce(p_name,'')))<3 then raise exception 'Workflow name must be at least 3 characters'; end if;
+ if p_trigger_type not in (
+   'NEW_LEAD','LEAD_STATUS_CHANGED','PIPELINE_STAGE_CHANGED','TASK_CREATED','TASK_COMPLETED','FOLLOWUP_DUE','REMINDER_DUE',
+   'CONVERSATION_RECEIVED','AI_ESCALATION','MANUAL_TRIGGER','SCHEDULED_TRIGGER',
+   'CONVERSATION_CREATED','CONVERSATION_ASSIGNED','MESSAGE_RECEIVED','MESSAGE_DELIVERED','MESSAGE_FAILED','CONVERSATION_CLOSED','CONVERSATION_REOPENED'
+ ) then raise exception 'Invalid workflow trigger'; end if;
+ wid:=me.workspace_id; graph:=p_graph;
+ if p_template_id is not null then
+   select definition,trigger_type into graph,p_trigger_type from sav_ai_crm.workflow_templates where id=p_template_id and workspace_id=wid;
+   if graph is null then raise exception 'Workflow template not found'; end if;
+ end if;
+ insert into sav_ai_crm.workflows(workspace_id,name,description,trigger_type,status,definition,version,created_by,updated_by)
+ values(wid,trim(p_name),nullif(trim(coalesce(p_description,'')),''),p_trigger_type,'draft',graph,1,me.id,me.id)
+ returning id into new_workflow_id;
+ perform sav_ai_crm.workflow_persist_graph(wid,new_workflow_id,1,graph);
+ insert into sav_ai_crm.workflow_versions(workspace_id,workflow_id,version,definition,created_by) values(wid,new_workflow_id,1,graph,me.id);
+ insert into sav_ai_crm.workflow_triggers(workspace_id,workflow_id,event,conditions,enabled)
+ values(wid,new_workflow_id,p_trigger_type,coalesce((select n.config->'conditions' from sav_ai_crm.workflow_nodes n where n.workflow_id=new_workflow_id and n.workflow_version=1 and n.node_type='TRIGGER' limit 1),'[]'::jsonb),true);
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ values(wid,auth.uid(),'workflow.create','workflow',new_workflow_id,jsonb_build_object('trigger',p_trigger_type,'version',1));
+ return new_workflow_id;
+end $;
+
+create or replace function public.sav_ai_crm_update_workflow(
+ p_workflow_id uuid,p_name text,p_description text,p_trigger_type text,p_graph jsonb
+) returns integer language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members; w sav_ai_crm.workflows; next_version integer;
+begin
+ me:=sav_ai_crm.workflow_current_member();
+ if me.id is null or not sav_ai_crm.workflow_can_manage(me.role) then raise exception 'Workflow update not permitted'; end if;
+ select * into w from sav_ai_crm.workflows where id=p_workflow_id and workspace_id=me.workspace_id and archived_at is null;
+ if w.id is null then raise exception 'Workflow not found'; end if;
+ if p_trigger_type not in (
+   'NEW_LEAD','LEAD_STATUS_CHANGED','PIPELINE_STAGE_CHANGED','TASK_CREATED','TASK_COMPLETED','FOLLOWUP_DUE','REMINDER_DUE',
+   'CONVERSATION_RECEIVED','AI_ESCALATION','MANUAL_TRIGGER','SCHEDULED_TRIGGER',
+   'CONVERSATION_CREATED','CONVERSATION_ASSIGNED','MESSAGE_RECEIVED','MESSAGE_DELIVERED','MESSAGE_FAILED','CONVERSATION_CLOSED','CONVERSATION_REOPENED'
+ ) then raise exception 'Invalid workflow trigger'; end if;
+ next_version:=w.version+1;
+ perform sav_ai_crm.workflow_persist_graph(me.workspace_id,w.id,next_version,p_graph);
+ insert into sav_ai_crm.workflow_versions(workspace_id,workflow_id,version,definition,created_by) values(me.workspace_id,w.id,next_version,p_graph,me.id);
+ update sav_ai_crm.workflows set name=trim(p_name),description=nullif(trim(coalesce(p_description,'')),''),trigger_type=p_trigger_type,
+   definition=p_graph,version=next_version,updated_by=me.id,updated_at=now() where id=w.id;
+ update sav_ai_crm.workflow_triggers set event=p_trigger_type,
+   conditions=coalesce((select n.config->'conditions' from sav_ai_crm.workflow_nodes n where n.workflow_id=w.id and n.workflow_version=next_version and n.node_type='TRIGGER' limit 1),'[]'::jsonb)
+ where workflow_id=w.id;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ values(me.workspace_id,auth.uid(),'workflow.update','workflow',w.id,jsonb_build_object('version',next_version));
+ return next_version;
+end $;
+
 create or replace function public.sav_ai_crm_dispatch_workflow_event(p_event text,p_context jsonb,p_event_key text)
 returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
