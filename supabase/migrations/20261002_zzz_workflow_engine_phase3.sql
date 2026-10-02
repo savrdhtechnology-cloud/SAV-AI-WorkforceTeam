@@ -300,6 +300,11 @@ begin
   end loop;
 end $$;
 
+-- Internal helpers are not callable directly from API roles.
+revoke all on function sav_ai_crm.workflow_condition_match(jsonb,jsonb) from public,anon,authenticated;
+revoke all on function sav_ai_crm.workflow_conditions_match(jsonb,jsonb) from public,anon,authenticated;
+revoke all on function sav_ai_crm.workflow_persist_graph(uuid,uuid,integer,jsonb) from public,anon,authenticated;
+
 -- Registry CRUD --------------------------------------------------------------
 create or replace function public.sav_ai_crm_workflow_registry()
 returns jsonb language plpgsql stable security definer
@@ -548,6 +553,8 @@ as $$
  order by case when e.branch=p_branch then 0 else 1 end,e.created_at
  limit 1;
 $$;
+
+revoke all on function sav_ai_crm.workflow_next_node(uuid,integer,text,text) from public,anon,authenticated;
 
 create or replace function public.sav_ai_crm_start_workflow(
  p_workflow_id uuid,p_context jsonb,p_idempotency_key text default null,p_trigger text default 'MANUAL_TRIGGER'
@@ -828,6 +835,10 @@ begin
    update sav_ai_crm.workflow_executions set current_node_id=next_id,depth=depth+1,updated_at=now() where id=ex.id;
  end loop;
 exception when others then
+ update sav_ai_crm.workflow_node_executions
+ set status=case when retry_count+1>max_retries then 'failed' else 'retrying' end,
+     retry_count=retry_count+1,last_error=sqlerrm,completed_at=case when retry_count+1>max_retries then now() else completed_at end
+ where execution_id=p_execution_id and status='running';
  update sav_ai_crm.workflow_executions set execution_state='failed',retry_count=retry_count+1,error=sqlerrm,updated_at=now(),
    completed_at=case when retry_count+1>max_retries then now() else completed_at end
  where id=p_execution_id;
