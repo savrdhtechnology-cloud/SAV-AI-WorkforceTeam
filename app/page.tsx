@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Activity,
   ArrowRight,
@@ -20,7 +22,12 @@ import {
   Workflow,
   Zap,
 } from "lucide-react";
-import RevealController from "./reveal-controller";
+import {
+  motion,
+  useScroll,
+  useSpring,
+  useTransform,
+} from "framer-motion";
 
 const agents = [
   {
@@ -78,19 +85,50 @@ const features = [
   },
 ];
 
+const fadeUp = {
+  hidden: { opacity: 0, y: 36, filter: "blur(8px)" },
+  show: { opacity: 1, y: 0, filter: "blur(0px)" },
+};
+
+const stagger = {
+  hidden: {},
+  show: {
+    transition: {
+      staggerChildren: 0.09,
+      delayChildren: 0.08,
+    },
+  },
+};
+
 function BrandMark() {
   return (
-    <div className="brand-mark" aria-hidden="true">
+    <motion.div
+      className="brand-mark"
+      aria-hidden="true"
+      animate={{ rotate: [0, 4, -4, 0], scale: [1, 1.04, 1] }}
+      transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+    >
       <span />
       <span />
       <span />
-    </div>
+    </motion.div>
   );
 }
 
 function CommandPreview() {
   return (
-    <div className="console-shell">
+    <motion.div
+      className="console-shell"
+      animate={{ y: [0, -10, 0], rotateX: [0, 1, 0], rotateY: [-3, -1.5, -3] }}
+      transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
+      whileHover={{ scale: 1.015, y: -6 }}
+    >
+      <motion.div
+        className="console-scanline"
+        animate={{ y: ["-120%", "520%"] }}
+        transition={{ duration: 4.5, repeat: Infinity, ease: "linear" }}
+      />
+
       <div className="console-top">
         <div className="console-brand">
           <BrandMark />
@@ -105,27 +143,42 @@ function CommandPreview() {
       <div className="console-body">
         <aside className="console-side">
           {["Dashboard", "AI Agents", "Voice", "Channels", "Workflows", "Knowledge", "Memory", "Escalation", "Analytics"].map((item, i) => (
-            <div className={i === 0 ? "mini-nav active" : "mini-nav"} key={item}>
+            <motion.div
+              className={i === 0 ? "mini-nav active" : "mini-nav"}
+              key={item}
+              whileHover={{ x: 5 }}
+              transition={{ type: "spring", stiffness: 320, damping: 24 }}
+            >
               <span className="mini-dot" />
               {item}
-            </div>
+            </motion.div>
           ))}
         </aside>
 
         <div className="console-main">
           <div className="console-label"><span className="scan-dot" /> AI COMMAND CENTER</div>
-          <div className="command-box">
+          <motion.div
+            className="command-box"
+            animate={{ borderColor: ["#294E73", "#4b82b7", "#294E73"] }}
+            transition={{ duration: 3.5, repeat: Infinity }}
+          >
             <span className="prompt-label">Tell SAV AI what you want to do...</span>
             <div className="typed-line">
               <ChevronRight size={16} />
               Start following up with today&apos;s pending leads
               <span className="typing-cursor" />
             </div>
-            <button>EXECUTE <Zap size={14} /></button>
-          </div>
+            <motion.button whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.96 }}>
+              EXECUTE <Zap size={14} />
+            </motion.button>
+          </motion.div>
 
           <div className="response-heading"><span className="scan-dot" /> AI RESPONSE</div>
-          <div className="response-box">
+          <motion.div
+            className="response-box"
+            animate={{ boxShadow: ["0 0 0 rgba(73,227,255,0)", "0 0 24px rgba(73,227,255,.08)", "0 0 0 rgba(73,227,255,0)"] }}
+            transition={{ duration: 3.2, repeat: Infinity }}
+          >
             <div className="response-icon"><Sparkles size={18} /></div>
             <div>
               <strong>SAV-Sales will contact 42 pending leads through WhatsApp.</strong>
@@ -134,51 +187,93 @@ function CommandPreview() {
                 <span><b>No</b> approval required</span>
               </div>
             </div>
-          </div>
+          </motion.div>
 
           <div className="agent-strip live-strip">
             <div><span className="live-dot" /> SAV-Sales</div>
-            <div><RefreshCw size={13} /> Workflow running</div>
+            <motion.div animate={{ rotate: 360 }} transition={{ duration: 4, repeat: Infinity, ease: "linear" }}>
+              <RefreshCw size={13} />
+            </motion.div>
+            <div>Workflow running</div>
             <div><Activity size={13} /> Live activity</div>
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
+  );
+}
+
+function RevealSection({
+  children,
+  className,
+  id,
+}: {
+  children: React.ReactNode;
+  className: string;
+  id?: string;
+}) {
+  return (
+    <motion.section
+      className={className}
+      id={id}
+      initial="hidden"
+      whileInView="show"
+      viewport={{ once: true, amount: 0.18 }}
+      variants={stagger}
+    >
+      {children}
+    </motion.section>
   );
 }
 
 export default function Home() {
+  const { scrollYProgress } = useScroll();
+  const smoothProgress = useSpring(scrollYProgress, { stiffness: 90, damping: 24, mass: 0.25 });
+  const heroY = useTransform(smoothProgress, [0, 0.22], [0, 110]);
+  const heroOpacity = useTransform(smoothProgress, [0, 0.22], [1, 0.55]);
+  const orbOneY = useTransform(smoothProgress, [0, 1], [0, 280]);
+  const orbTwoY = useTransform(smoothProgress, [0, 1], [0, -220]);
+
   return (
     <main>
-      <RevealController />
+      <motion.div className="scroll-progress" style={{ scaleX: smoothProgress }} />
+
       <div className="ambient-stage" aria-hidden="true">
-        <span className="ambient-orb orb-a" />
-        <span className="ambient-orb orb-b" />
-        <span className="ambient-orb orb-c" />
-        <span className="ambient-line line-a" />
-        <span className="ambient-line line-b" />
+        <motion.span
+          className="ambient-orb orb-a"
+          style={{ y: orbOneY }}
+          animate={{ x: [0, 80, 0], scale: [1, 1.16, 1] }}
+          transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <motion.span
+          className="ambient-orb orb-b"
+          style={{ y: orbTwoY }}
+          animate={{ x: [0, -100, 0], scale: [1, 0.9, 1] }}
+          transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <motion.span
+          className="ambient-orb orb-c"
+          animate={{ x: [-40, 70, -40], y: [0, -90, 0], scale: [0.9, 1.18, 0.9] }}
+          transition={{ duration: 16, repeat: Infinity, ease: "easeInOut" }}
+        />
         <div className="particle-field">
-          <i className="particle p-1" />
-          <i className="particle p-2" />
-          <i className="particle p-3" />
-          <i className="particle p-4" />
-          <i className="particle p-5" />
-          <i className="particle p-6" />
-          <i className="particle p-7" />
-          <i className="particle p-8" />
-          <i className="particle p-9" />
-          <i className="particle p-10" />
-          <i className="particle p-11" />
-          <i className="particle p-12" />
-          <i className="particle p-13" />
-          <i className="particle p-14" />
-          <i className="particle p-15" />
-          <i className="particle p-16" />
-          <i className="particle p-17" />
-          <i className="particle p-18" />
+          {Array.from({ length: 18 }).map((_, i) => (
+            <motion.i
+              className={"particle p-" + (i + 1)}
+              key={i}
+              animate={{ y: [0, -140], opacity: [0, 0.8, 0], scale: [0.6, 1.15] }}
+              transition={{ duration: 6 + (i % 5) * 1.4, repeat: Infinity, delay: (i % 6) * 0.45, ease: "linear" }}
+            />
+          ))}
         </div>
       </div>
-      <header className="site-header">
+
+      <motion.header
+        className="site-header"
+        initial={{ opacity: 0, y: -24 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+      >
         <a className="logo" href="#top" aria-label="SAVRDH Intelligence Workforce">
           <BrandMark />
           <div>
@@ -192,172 +287,238 @@ export default function Home() {
           <a href="#integrations">Integrations</a>
           <a href="#security">Security</a>
         </nav>
-        <a className="header-cta" href="#contact">Request Demo <ArrowRight size={15} /></a>
-      </header>
+        <motion.a className="header-cta" href="#contact" whileHover={{ y: -2, scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+          Request Demo <ArrowRight size={15} />
+        </motion.a>
+      </motion.header>
 
       <section className="hero" id="top">
-        <div className="hero-glow glow-one" />
-        <div className="hero-glow glow-two" />
+        <motion.div className="hero-glow glow-one" animate={{ scale: [1, 1.14, 1], x: [0, -35, 0] }} transition={{ duration: 8, repeat: Infinity }} />
+        <motion.div className="hero-glow glow-two" animate={{ scale: [0.9, 1.12, 0.9], y: [0, -24, 0] }} transition={{ duration: 9, repeat: Infinity }} />
         <div className="grid-overlay" />
-        <div className="hero-copy" data-reveal>
-          <div className="eyebrow"><Sparkles size={14} /> A Savrdh Technology Product</div>
-          <h1>AI That Works Like a Team.<br /><span>Always On. Always Coordinated.</span></h1>
-          <p>
+
+        <motion.div
+          className="hero-copy"
+          style={{ y: heroY, opacity: heroOpacity }}
+          initial="hidden"
+          animate="show"
+          variants={stagger}
+        >
+          <motion.div className="eyebrow" variants={fadeUp}><Sparkles size={14} /> A Savrdh Technology Product</motion.div>
+          <motion.h1 variants={fadeUp}>
+            AI That Works Like a Team.<br />
+            <motion.span
+              animate={{ backgroundPosition: ["0% 50%", "200% 50%"] }}
+              transition={{ duration: 5, repeat: Infinity, ease: "linear" }}
+            >
+              Always On. Always Coordinated.
+            </motion.span>
+          </motion.h1>
+          <motion.p variants={fadeUp}>
             Deploy intelligent AI agents that follow up, communicate, coordinate and execute work across your business — 24×7, across every channel, with human control where it matters.
-          </p>
-          <div className="hero-actions">
-            <a href="#contact" className="primary-btn">See SAV in Action <ArrowRight size={18} /></a>
-            <a href="#platform" className="ghost-btn"><Play size={16} fill="currentColor" /> Explore Platform</a>
-          </div>
-          <div className="trust-row">
+          </motion.p>
+          <motion.div className="hero-actions" variants={fadeUp}>
+            <motion.a href="#contact" className="primary-btn" whileHover={{ y: -3, scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+              See SAV in Action <ArrowRight size={18} />
+            </motion.a>
+            <motion.a href="#platform" className="ghost-btn" whileHover={{ y: -3, scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+              <Play size={16} fill="currentColor" /> Explore Platform
+            </motion.a>
+          </motion.div>
+          <motion.div className="trust-row" variants={fadeUp}>
             <span><CheckCircle2 size={15} /> Human-in-the-loop</span>
             <span><CheckCircle2 size={15} /> Live execution</span>
             <span><CheckCircle2 size={15} /> Omnichannel</span>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
 
-        <div className="hero-product" data-reveal>
-          <div className="floating-badge badge-one"><span /> 42 leads queued</div>
-          <div className="floating-badge badge-two"><Zap size={13} /> Agent executing</div>
+        <motion.div
+          className="hero-product"
+          initial={{ opacity: 0, x: 60, scale: 0.96 }}
+          animate={{ opacity: 1, x: 0, scale: 1 }}
+          transition={{ duration: 0.95, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <motion.div className="floating-badge badge-one" animate={{ y: [0, -9, 0] }} transition={{ duration: 4.5, repeat: Infinity }}>
+            <span /> 42 leads queued
+          </motion.div>
+          <motion.div className="floating-badge badge-two" animate={{ y: [0, 8, 0] }} transition={{ duration: 5.2, repeat: Infinity }}>
+            <Zap size={13} /> Agent executing
+          </motion.div>
           <CommandPreview />
-        </div>
+        </motion.div>
       </section>
 
-      <section className="logo-band" aria-label="Supported channels" data-reveal>
-        <span className="band-label">ONE WORKFORCE. EVERY CHANNEL.</span>
-        <div className="channel-marquee">
-          <div className="channel-track">
+      <RevealSection className="logo-band" >
+        <motion.span className="band-label" variants={fadeUp}>ONE WORKFORCE. EVERY CHANNEL.</motion.span>
+        <motion.div className="channel-marquee" variants={fadeUp}>
+          <motion.div
+            className="channel-track"
+            animate={{ x: ["0%", "-50%"] }}
+            transition={{ duration: 16, repeat: Infinity, ease: "linear" }}
+          >
             {[...channels, ...channels].map((channel, i) => <span key={channel + i}>{channel}</span>)}
-          </div>
-        </div>
-      </section>
+          </motion.div>
+        </motion.div>
+      </RevealSection>
 
-      <section className="section platform-section" id="platform" data-reveal>
-        <div className="section-kicker">ONE INTELLIGENT WORKFORCE</div>
-        <div className="section-heading">
+      <RevealSection className="section platform-section" id="platform">
+        <motion.div className="section-kicker" variants={fadeUp}>ONE INTELLIGENT WORKFORCE</motion.div>
+        <motion.div className="section-heading" variants={fadeUp}>
           <h2>Turn repetitive business work into intelligent execution.</h2>
-          <p>
-            Bring AI agents, workflows, communication, knowledge, approvals and analytics into one secure command center — designed to move work forward without constant manual follow-up.
-          </p>
-        </div>
-        <div className="feature-grid">
+          <p>Bring AI agents, workflows, communication, knowledge, approvals and analytics into one secure command center — designed to move work forward without constant manual follow-up.</p>
+        </motion.div>
+        <motion.div className="feature-grid" variants={stagger}>
           {features.map(({ icon: Icon, title, text }) => (
-            <article className="feature-card" key={title} data-reveal>
-              <div className="feature-icon"><Icon size={22} /></div>
+            <motion.article
+              className="feature-card"
+              key={title}
+              variants={fadeUp}
+              whileHover={{ y: -10, scale: 1.02, rotateX: 2, rotateY: -2 }}
+              transition={{ type: "spring", stiffness: 240, damping: 20 }}
+            >
+              <motion.div className="feature-icon" whileHover={{ rotate: -6, scale: 1.1 }}><Icon size={22} /></motion.div>
               <h3>{title}</h3>
               <p>{text}</p>
               <span className="learn-link">Built for business <ArrowRight size={14} /></span>
-            </article>
+            </motion.article>
           ))}
-        </div>
-      </section>
+        </motion.div>
+      </RevealSection>
 
-      <section className="section agents-section" id="agents" data-reveal>
-        <div className="agents-intro">
+      <RevealSection className="section agents-section" id="agents">
+        <motion.div className="agents-intro" variants={fadeUp}>
           <div className="section-kicker">YOUR AI TEAM, BUILT FOR REAL WORK</div>
           <h2>Specialized AI agents.<br />One coordinated workforce.</h2>
-          <p>
-            Give each agent a clear role, approved knowledge and action boundaries. SAV coordinates execution across the team and surfaces only the moments that need human judgment.
-          </p>
+          <p>Give each agent a clear role, approved knowledge and action boundaries. SAV coordinates execution across the team and surfaces only the moments that need human judgment.</p>
           <div className="control-points">
             <span><LockKeyhole size={16} /> Role-based controls</span>
             <span><Network size={16} /> Connected workflows</span>
             <span><Activity size={16} /> Complete activity trail</span>
           </div>
-        </div>
-        <div className="agent-cards">
+        </motion.div>
+        <motion.div className="agent-cards" variants={stagger}>
           {agents.map(({ icon: Icon, title, text, stat }, i) => (
-            <article className={"agent-card agent-" + (i + 1)} key={title} data-reveal>
+            <motion.article
+              className={"agent-card agent-" + (i + 1)}
+              key={title}
+              variants={fadeUp}
+              whileHover={{ x: 8, scale: 1.018 }}
+            >
               <div className="agent-card-top">
-                <div className="agent-avatar"><Icon size={21} /></div>
+                <motion.div className="agent-avatar" animate={{ y: [0, -3, 0] }} transition={{ duration: 3.4 + i * 0.4, repeat: Infinity }}>
+                  <Icon size={21} />
+                </motion.div>
                 <span className="agent-status"><i /> ACTIVE</span>
               </div>
               <h3>{title}</h3>
               <p>{text}</p>
               <div className="agent-card-stat">{stat}</div>
-            </article>
+            </motion.article>
           ))}
-        </div>
-      </section>
+        </motion.div>
+      </RevealSection>
 
-      <section className="section workflow-section" data-reveal>
-        <div className="workflow-panel">
+      <RevealSection className="section workflow-section">
+        <motion.div className="workflow-panel" variants={fadeUp}>
           <div className="workflow-copy">
             <div className="section-kicker">FROM INTENT TO EXECUTION</div>
             <h2>Describe the outcome. SAV coordinates the work.</h2>
-            <p>
-              Give SAV a natural-language instruction or automate repeatable processes with triggers, business rules, approvals and escalations. The system plans the work, routes actions and keeps execution visible.
-            </p>
+            <p>Give SAV a natural-language instruction or automate repeatable processes with triggers, business rules, approvals and escalations. The system plans the work, routes actions and keeps execution visible.</p>
             <a href="#contact" className="text-link">See how it works <ArrowRight size={16} /></a>
           </div>
           <div className="flow-visual">
-            <div className="flow-node user-node"><MessageCircleMore size={18} /><span>Your command</span></div>
-            <div className="flow-line"><span /></div>
-            <div className="flow-node ai-node"><BrainCircuit size={20} /><span>SAV Orchestrator</span></div>
-            <div className="flow-branches">
-              <span />
-              <span />
-              <span />
-            </div>
+            <motion.div className="flow-node user-node" animate={{ y: [0, -6, 0] }} transition={{ duration: 3.5, repeat: Infinity }}>
+              <MessageCircleMore size={18} /><span>Your command</span>
+            </motion.div>
+            <div className="flow-line"><motion.span animate={{ y: [0, 38] }} transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }} /></div>
+            <motion.div className="flow-node ai-node" animate={{ scale: [1, 1.035, 1] }} transition={{ duration: 2.8, repeat: Infinity }}>
+              <BrainCircuit size={20} /><span>SAV Orchestrator</span>
+            </motion.div>
+            <div className="flow-branches" />
             <div className="flow-results">
-              <div><PhoneCall size={16} /> Sales</div>
-              <div><Workflow size={16} /> Workflow</div>
-              <div><Layers3 size={16} /> CRM</div>
+              {[
+                [PhoneCall, "Sales"],
+                [Workflow, "Workflow"],
+                [Layers3, "CRM"],
+              ].map(([Icon, label], i) => {
+                const I = Icon as typeof PhoneCall;
+                return (
+                  <motion.div key={label as string} animate={{ y: [0, -4, 0] }} transition={{ duration: 3 + i * 0.35, repeat: Infinity, delay: i * 0.25 }}>
+                    <I size={16} /> {label as string}
+                  </motion.div>
+                );
+              })}
             </div>
           </div>
-        </div>
-      </section>
+        </motion.div>
+      </RevealSection>
 
-      <section className="section integrations-section" id="integrations" data-reveal>
-        <div className="section-kicker">BUILT TO WORK WITH YOUR STACK</div>
-        <div className="section-heading">
+      <RevealSection className="section integrations-section" id="integrations">
+        <motion.div className="section-kicker" variants={fadeUp}>BUILT TO WORK WITH YOUR STACK</motion.div>
+        <motion.div className="section-heading" variants={fadeUp}>
           <h2>Connect the systems your team already depends on.</h2>
           <p>Bring communication, CRM, data and workflow systems together so every agent works from the same trusted business context.</p>
-        </div>
-        <div className="integration-cloud">
+        </motion.div>
+        <motion.div className="integration-cloud" variants={fadeUp}>
+          <motion.div className="orbit-ring orbit-ring-one" animate={{ rotate: 360 }} transition={{ duration: 18, repeat: Infinity, ease: "linear" }} />
+          <motion.div className="orbit-ring orbit-ring-two" animate={{ rotate: -360 }} transition={{ duration: 24, repeat: Infinity, ease: "linear" }} />
           {["WhatsApp", "Email", "SMS", "Voice", "Savrdh CRM", "Supabase", "Webhooks", "REST API"].map((x, i) => (
-            <span className={"integration-pill pill-" + i} key={x}>{x}</span>
+            <motion.span
+              className={"integration-pill pill-" + i}
+              key={x}
+              animate={{ y: [0, i % 2 === 0 ? -8 : 8, 0] }}
+              transition={{ duration: 4.2 + (i % 3) * 0.7, repeat: Infinity, delay: i * 0.12 }}
+              whileHover={{ scale: 1.08 }}
+            >
+              {x}
+            </motion.span>
           ))}
-          <div className="cloud-core"><BrandMark /><strong>SAV</strong><small>AI CORE</small></div>
-        </div>
-      </section>
+          <motion.div className="cloud-core" animate={{ scale: [1, 1.045, 1] }} transition={{ duration: 4, repeat: Infinity }}>
+            <BrandMark /><strong>SAV</strong><small>AI CORE</small>
+          </motion.div>
+        </motion.div>
+      </RevealSection>
 
-      <section className="section security-section" id="security" data-reveal>
-        <div className="security-card">
+      <RevealSection className="section security-section" id="security">
+        <motion.div className="security-card" variants={fadeUp}>
           <div>
             <div className="section-kicker">GOVERNANCE BUILT INTO EVERY ACTION</div>
             <h2>Move faster without giving up control.</h2>
-            <p>
-              Control what every agent can access, automate low-risk actions, require approval where needed and keep a clear record of important activity.
-            </p>
+            <p>Control what every agent can access, automate low-risk actions, require approval where needed and keep a clear record of important activity.</p>
           </div>
           <div className="security-list">
-            {["Approval gates", "Role-based access", "Escalation rules", "Activity history"].map((x) => (
-              <div key={x}><ShieldCheck size={18} /><span>{x}</span><CheckCircle2 size={17} /></div>
+            {["Approval gates", "Role-based access", "Escalation rules", "Activity history"].map((x, i) => (
+              <motion.div key={x} whileHover={{ x: 7, scale: 1.01 }} initial={{ opacity: 0, x: 20 }} whileInView={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.08 }}>
+                <ShieldCheck size={18} /><span>{x}</span><CheckCircle2 size={17} />
+              </motion.div>
             ))}
           </div>
-        </div>
-      </section>
+        </motion.div>
+      </RevealSection>
 
-      <section className="cta-section" id="contact" data-reveal>
-        <div className="cta-orb" />
-        <div className="section-kicker">SAVRDH INTELLIGENCE WORKFORCE</div>
-        <h2>Put intelligent execution to work across your business.</h2>
-        <p>AI agents that communicate, coordinate and execute — while your team stays in control.</p>
-        <div className="hero-actions cta-actions">
-          <a className="primary-btn" href="mailto:info@savrdhtechnology.com">Request a Live Demo <ArrowRight size={18} /></a>
-          <a className="ghost-btn" href="https://www.savrdhtechnology.com">Visit Savrdh Technology</a>
-        </div>
-      </section>
+      <RevealSection className="cta-section" id="contact">
+        <motion.div className="cta-orb" animate={{ scale: [1, 1.18, 1], opacity: [0.12, 0.24, 0.12] }} transition={{ duration: 5.5, repeat: Infinity }} />
+        <motion.div className="section-kicker" variants={fadeUp}>SAVRDH INTELLIGENCE WORKFORCE</motion.div>
+        <motion.h2 variants={fadeUp}>Put intelligent execution to work across your business.</motion.h2>
+        <motion.p variants={fadeUp}>AI agents that communicate, coordinate and execute — while your team stays in control.</motion.p>
+        <motion.div className="hero-actions cta-actions" variants={fadeUp}>
+          <motion.a className="primary-btn" href="mailto:info@savrdhtechnology.com" whileHover={{ y: -3, scale: 1.03 }}>
+            Request a Live Demo <ArrowRight size={18} />
+          </motion.a>
+          <motion.a className="ghost-btn" href="https://www.savrdhtechnology.com" whileHover={{ y: -3, scale: 1.02 }}>
+            Visit Savrdh Technology
+          </motion.a>
+        </motion.div>
+      </RevealSection>
 
-      <footer>
+      <motion.footer initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }} transition={{ duration: 0.8 }}>
         <div className="footer-brand"><BrandMark /><span>SAVRDH Intelligence Workforce</span></div>
         <p>© 2026 Savrdh Technology. All rights reserved.</p>
         <div className="footer-links">
           <a href="https://www.savrdhtechnology.com">savrdhtechnology.com</a>
           <a href="mailto:info@savrdhtechnology.com">Contact</a>
         </div>
-      </footer>
+      </motion.footer>
     </main>
   );
 }
