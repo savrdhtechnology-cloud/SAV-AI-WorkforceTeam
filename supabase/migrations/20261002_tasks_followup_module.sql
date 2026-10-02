@@ -424,6 +424,7 @@ create or replace function public.sav_ai_crm_update_task(
   p_due_at timestamptz default null,
   p_reminder_at timestamptz default null,
   p_lead_id uuid default null,
+  p_contact_id uuid default null,
   p_notes text default null,
   p_assignee_type text default 'human',
   p_assigned_to uuid default null,
