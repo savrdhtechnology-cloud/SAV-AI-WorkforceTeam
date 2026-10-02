@@ -31,6 +31,7 @@ import {
 import InteractiveHero from "./interactive-hero";
 import InteractiveWorkflow from "./interactive-workflow";
 import InteractiveEcosystem from "./interactive-ecosystem";
+import AgentsShowcase from "./agents-showcase";
 
 const agents = [
   {
@@ -334,38 +335,7 @@ export default function Home() {
         </motion.div>
       </RevealSection>
 
-      <RevealSection className="section agents-section" id="agents">
-        <motion.div className="agents-intro" variants={fadeUp}>
-          <div className="section-kicker">YOUR AI TEAM, BUILT FOR REAL WORK</div>
-          <h2>Specialized AI agents.<br />One coordinated workforce.</h2>
-          <p>Give each agent a clear role, approved knowledge and action boundaries. SAV coordinates execution across the team and surfaces only the moments that need human judgment.</p>
-          <div className="control-points">
-            <span><LockKeyhole size={16} /> Role-based controls</span>
-            <span><Network size={16} /> Connected workflows</span>
-            <span><Activity size={16} /> Complete activity trail</span>
-          </div>
-        </motion.div>
-        <motion.div className="agent-cards" variants={stagger}>
-          {agents.map(({ icon: Icon, title, text, stat }, i) => (
-            <motion.article
-              className={"agent-card agent-" + (i + 1)}
-              key={title}
-              variants={fadeUp}
-              whileHover={{ x: 8, scale: 1.018 }}
-            >
-              <div className="agent-card-top">
-                <motion.div className="agent-avatar" animate={{ y: [0, -3, 0] }} transition={{ duration: 3.4 + i * 0.4, repeat: Infinity }}>
-                  <Icon size={21} />
-                </motion.div>
-                <span className="agent-status"><i /> ACTIVE</span>
-              </div>
-              <h3>{title}</h3>
-              <p>{text}</p>
-              <div className="agent-card-stat">{stat}</div>
-            </motion.article>
-          ))}
-        </motion.div>
-      </RevealSection>
+      <AgentsShowcase />
 
       <InteractiveWorkflow />
 
