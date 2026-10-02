@@ -20,7 +20,7 @@ export async function POST(req:NextRequest,{params}:{params:Promise<{channel:str
     return jsonError(verified.message,status,verified.error);
   }
   const normalized=await adapter.normalizeInboundMessage(envelope);
-  if("ok" in normalized && normalized.ok===false)return jsonError(normalized.message,422,normalized.error);
+  if("error" in normalized)return jsonError(normalized.message,422,normalized.error);
 
   const admin=serverAdminSupabase();
   if(!admin)return jsonError("Server webhook persistence is not configured",503,"WEBHOOK_SERVER_NOT_CONFIGURED");
