@@ -243,12 +243,17 @@ as $$ select p_role in ('owner','admin','manager'); $$;
 
 create or replace function sav_ai_crm.inbox_can_write(p_role text)
 returns boolean language sql immutable
-as $$ select p_role in ('owner','admin','manager','sales','support','operations'); $$;
+as $ select p_role in ('owner','admin','manager','sales','support','operations'); $;
+
+create or replace function sav_ai_crm.inbox_can_access(p_role text,p_member_id uuid,p_assigned_to uuid)
+returns boolean language sql immutable
+as $ select p_role in ('owner','admin','manager','viewer') or p_assigned_to is null or p_assigned_to=p_member_id; $;
 
 revoke all on function sav_ai_crm.inbox_current_member() from public,anon;
 grant execute on function sav_ai_crm.inbox_current_member() to authenticated;
 revoke all on function sav_ai_crm.inbox_can_manage(text) from public,anon,authenticated;
 revoke all on function sav_ai_crm.inbox_can_write(text) from public,anon,authenticated;
+revoke all on function sav_ai_crm.inbox_can_access(text,uuid,uuid) from public,anon,authenticated;
 
 do $$
 declare t text;
@@ -336,6 +341,7 @@ begin
   left join sav_ai_crm.members h on h.id=c.assigned_to and h.workspace_id=c.workspace_id
   left join sav_ai_crm.ai_agents a on a.id=c.assigned_agent_id and a.workspace_id=c.workspace_id
   where c.workspace_id=me.workspace_id
+    and sav_ai_crm.inbox_can_access(me.role,me.id,c.assigned_to)
     and (p_status='archived' or c.archived_at is null)
     and (p_channel is null or c.channel=p_channel)
     and (p_status is null or c.status=p_status)
@@ -364,7 +370,7 @@ declare me sav_ai_crm.members; c sav_ai_crm.conversations;
 begin
  me:=sav_ai_crm.inbox_current_member();
  if me.id is null then raise exception 'CRM membership required'; end if;
- select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id;
+ select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id and sav_ai_crm.inbox_can_access(me.role,me.id,assigned_to);
  if c.id is null then raise exception 'Conversation not found'; end if;
 
  return jsonb_build_object(
@@ -428,7 +434,7 @@ declare me sav_ai_crm.members; c sav_ai_crm.conversations; tag_value text;
 begin
  me:=sav_ai_crm.inbox_current_member();
  if me.id is null or not sav_ai_crm.inbox_can_write(me.role) then raise exception 'Conversation update not permitted'; end if;
- select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id;
+ select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id and sav_ai_crm.inbox_can_access(me.role,me.id,assigned_to);
  if c.id is null then raise exception 'Conversation not found'; end if;
  if p_priority is not null and p_priority not in ('low','medium','high','urgent') then raise exception 'Invalid priority'; end if;
  if p_lead_id is not null and p_contact_id is not null then raise exception 'Conversation may link to lead or contact, not both'; end if;
@@ -471,7 +477,7 @@ declare me sav_ai_crm.members; c sav_ai_crm.conversations;
 begin
  me:=sav_ai_crm.inbox_current_member();
  if me.id is null or not sav_ai_crm.inbox_can_manage(me.role) then raise exception 'Conversation assignment not permitted'; end if;
- select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id and archived_at is null;
+ select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id and archived_at is null and sav_ai_crm.inbox_can_access(me.role,me.id,assigned_to);
  if c.id is null then raise exception 'Conversation not found'; end if;
  if p_assignment_type not in ('human','ai') then raise exception 'Invalid assignment type'; end if;
  if p_assignment_type='human' then
@@ -500,7 +506,7 @@ declare me sav_ai_crm.members; c sav_ai_crm.conversations; new_status text;
 begin
  me:=sav_ai_crm.inbox_current_member();
  if me.id is null or not sav_ai_crm.inbox_can_write(me.role) then raise exception 'Conversation state change not permitted'; end if;
- select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id;
+ select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id and sav_ai_crm.inbox_can_access(me.role,me.id,assigned_to);
  if c.id is null then raise exception 'Conversation not found'; end if;
  if p_action='close' then new_status:='closed'; elsif p_action='reopen' then new_status:='open'; else raise exception 'Invalid conversation action'; end if;
  update sav_ai_crm.conversations set status=new_status,archived_at=null,updated_at=now() where id=c.id;
@@ -518,7 +524,7 @@ declare me sav_ai_crm.members; c sav_ai_crm.conversations; agent_id uuid; escala
 begin
  me:=sav_ai_crm.inbox_current_member();
  if me.id is null or not sav_ai_crm.inbox_can_write(me.role) then raise exception 'Conversation escalation not permitted'; end if;
- select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id and archived_at is null;
+ select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id and archived_at is null and sav_ai_crm.inbox_can_access(me.role,me.id,assigned_to);
  if c.id is null then raise exception 'Conversation not found'; end if;
  agent_id:=c.assigned_agent_id;
  if agent_id is null then select id into agent_id from sav_ai_crm.ai_agents where workspace_id=me.workspace_id and slug='sav-support' limit 1; end if;
@@ -546,7 +552,7 @@ declare me sav_ai_crm.members; c sav_ai_crm.conversations; agent sav_ai_crm.ai_a
 begin
  me:=sav_ai_crm.inbox_current_member();
  if me.id is null or not sav_ai_crm.inbox_can_write(me.role) then raise exception 'Message send not permitted'; end if;
- select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id and archived_at is null;
+ select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id and archived_at is null and sav_ai_crm.inbox_can_access(me.role,me.id,assigned_to);
  if c.id is null then raise exception 'Conversation not found'; end if;
  if c.status='closed' then raise exception 'Conversation is closed'; end if;
  if p_message_type not in ('text','html','image','file','audio','video') then raise exception 'Invalid outbound message type'; end if;
@@ -556,7 +562,7 @@ begin
   select * into agent from sav_ai_crm.ai_agents where id=p_agent_id and workspace_id=me.workspace_id and status='active';
   if agent.id is null then raise exception 'AI agent not found'; end if;
   if not c.channel=any(agent.channels) or not 'SEND_MESSAGE'=any(agent.capabilities) then raise exception 'AI agent lacks channel SEND_MESSAGE capability'; end if;
-  action_result:=public.sav_ai_crm_request_agent_action(agent.id,'SEND_MESSAGE','conversation',c.id,jsonb_build_object('body',p_body,'channel',c.channel,'message_type',p_message_type));
+  action_result:=public.sav_ai_crm_request_agent_action(agent.id,'SEND_MESSAGE','conversation',c.id,jsonb_build_object('body',p_body,'channel',c.channel,'message_type',p_message_type,'recipient',p_recipient,'attachments',coalesce(p_attachments,'[]'::jsonb)));
   needs_approval:=coalesce((action_result->>'approval_required')::boolean,true);
   if needs_approval then
     return jsonb_build_object('approval_required',true,'agent_action_id',action_result->>'action_id','risk_level',action_result->>'risk_level');
@@ -591,6 +597,69 @@ begin
  return jsonb_build_object('message_id',mid,'conversation_id',c.id,'channel',c.channel,'channel_account_id',account.id,'provider',coalesce(account.provider,'unconfigured'),'sender',sender_identity,'recipient',p_recipient,'provider_configured',account.id is not null and sender_identity is not null,'approval_required',false);
 end $$;
 
+create or replace function public.sav_ai_crm_queue_approved_agent_message(p_action_id uuid)
+returns jsonb language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members; act sav_ai_crm.ai_agent_actions; agent sav_ai_crm.ai_agents; c sav_ai_crm.conversations; account sav_ai_crm.channel_accounts; mid uuid; existing_mid uuid;
+begin
+ me:=sav_ai_crm.inbox_current_member();
+ if me.id is null or not sav_ai_crm.inbox_can_write(me.role) then raise exception 'Approved AI message queue not permitted'; end if;
+ select * into act from sav_ai_crm.ai_agent_actions where id=p_action_id and workspace_id=me.workspace_id for update;
+ if act.id is null or act.action<>'SEND_MESSAGE' or act.target_type<>'conversation' then raise exception 'Approved SEND_MESSAGE action not found'; end if;
+ if act.status in ('executing','completed','failed') then
+   existing_mid:=nullif(act.result->>'message_id','')::uuid;
+   if existing_mid is not null then return jsonb_build_object('message_id',existing_mid,'agent_action_id',act.id,'already_queued',true); end if;
+ end if;
+ if act.status<>'approved' then raise exception 'Human approval required'; end if;
+ select * into agent from sav_ai_crm.ai_agents where id=act.agent_id and workspace_id=me.workspace_id and status='active';
+ if agent.id is null or not 'SEND_MESSAGE'=any(agent.capabilities) then raise exception 'AI agent SEND_MESSAGE capability unavailable'; end if;
+ select * into c from sav_ai_crm.conversations where id=act.target_id and workspace_id=me.workspace_id and archived_at is null
+   and sav_ai_crm.inbox_can_access(me.role,me.id,assigned_to);
+ if c.id is null then raise exception 'Conversation not found'; end if;
+ if not c.channel=any(agent.channels) then raise exception 'AI agent channel capability unavailable'; end if;
+ if coalesce(act.payload->>'channel','')<>c.channel then raise exception 'Approved channel does not match conversation'; end if;
+
+ select * into account from sav_ai_crm.channel_accounts where workspace_id=me.workspace_id and channel=c.channel and status='connected' order by updated_at desc limit 1;
+ insert into sav_ai_crm.messages(workspace_id,conversation_id,channel,direction,sender_type,sender_name,sender,recipient,message_type,body,delivery_status,is_read,sent_by_agent_id,metadata,updated_at)
+ values(me.workspace_id,c.id,c.channel,'outbound','ai_agent',coalesce(agent.display_name,agent.name),account.sender_identity,
+   nullif(act.payload->>'recipient',''),coalesce(nullif(act.payload->>'message_type',''),'text'),nullif(act.payload->>'body',''),'QUEUED',true,agent.id,
+   jsonb_build_object('channel_account_id',account.id,'provider',coalesce(account.provider,'unconfigured'),'agent_action_id',act.id,'provider_configured',account.id is not null and account.sender_identity is not null),now())
+ returning id into mid;
+
+ if jsonb_typeof(coalesce(act.payload->'attachments','[]'::jsonb))='array' then
+   insert into sav_ai_crm.message_attachments(workspace_id,message_id,file_name,mime_type,size_bytes,external_url,provider_attachment_id,metadata)
+   select me.workspace_id,mid,x->>'file_name',x->>'mime_type',nullif(x->>'size_bytes','')::bigint,x->>'external_url',x->>'provider_attachment_id',coalesce(x->'metadata','{}'::jsonb)
+   from jsonb_array_elements(act.payload->'attachments') x where coalesce(x->>'file_name','')<>'' and coalesce(x->>'mime_type','')<>'';
+ end if;
+ insert into sav_ai_crm.message_delivery_events(workspace_id,message_id,status) values(me.workspace_id,mid,'QUEUED');
+ update sav_ai_crm.ai_agent_actions set status='executing',result=jsonb_build_object('message_id',mid),updated_at=now() where id=act.id;
+ insert into sav_ai_crm.conversation_activity(workspace_id,conversation_id,message_id,actor_agent_id,activity_type,title,metadata)
+ values(me.workspace_id,c.id,mid,agent.id,'ai_message_queued','Approved AI message queued',jsonb_build_object('agent_action_id',act.id));
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ values(me.workspace_id,auth.uid(),'inbox.ai.message.queued','message',mid,jsonb_build_object('agent_id',agent.id,'agent_action_id',act.id));
+ return jsonb_build_object('message_id',mid,'agent_action_id',act.id,'already_queued',false);
+end $;
+
+create or replace function public.sav_ai_crm_finalize_agent_message_action(p_action_id uuid,p_message_id uuid,p_ok boolean,p_error text default null)
+returns void language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members; act sav_ai_crm.ai_agent_actions; m sav_ai_crm.messages;
+begin
+ me:=sav_ai_crm.inbox_current_member();
+ if me.id is null or not sav_ai_crm.inbox_can_write(me.role) then raise exception 'AI message finalization not permitted'; end if;
+ select * into act from sav_ai_crm.ai_agent_actions where id=p_action_id and workspace_id=me.workspace_id for update;
+ select * into m from sav_ai_crm.messages where id=p_message_id and workspace_id=me.workspace_id;
+ if act.id is null or m.id is null or act.agent_id<>m.sent_by_agent_id or act.target_id<>m.conversation_id then raise exception 'AI message action mismatch'; end if;
+ update sav_ai_crm.ai_agent_actions set status=case when p_ok then 'completed' else 'failed' end,
+   result=jsonb_build_object('message_id',m.id,'delivery_status',m.delivery_status),
+   error=case when p_ok then null else coalesce(p_error,m.error_message,'CHANNEL_PROVIDER_ERROR') end,
+   completed_at=now(),updated_at=now() where id=act.id;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ values(me.workspace_id,auth.uid(),case when p_ok then 'inbox.ai.message.completed' else 'inbox.ai.message.failed' end,'ai_agent_action',act.id,jsonb_build_object('message_id',m.id,'status',m.delivery_status));
+end $;
+
 create or replace function public.sav_ai_crm_mark_message_sending(p_message_id uuid)
 returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
@@ -602,7 +671,7 @@ begin
  select * into m from sav_ai_crm.messages where id=p_message_id and workspace_id=me.workspace_id for update;
  if m.id is null then raise exception 'Message not found'; end if;
  if m.delivery_status not in ('QUEUED','FAILED') then raise exception 'Message is not sendable'; end if;
- select * into c from sav_ai_crm.conversations where id=m.conversation_id and workspace_id=me.workspace_id;
+ select * into c from sav_ai_crm.conversations where id=m.conversation_id and workspace_id=me.workspace_id and sav_ai_crm.inbox_can_access(me.role,me.id,assigned_to);
  update sav_ai_crm.messages set delivery_status='SENDING',error_code=null,error_message=null,updated_at=now() where id=m.id;
  insert into sav_ai_crm.message_delivery_events(workspace_id,message_id,status) values(me.workspace_id,m.id,'SENDING');
  return jsonb_build_object('message_id',m.id,'conversation_id',c.id,'channel',c.channel,'sender',m.sender,'recipient',m.recipient,'message_type',m.message_type,'body',m.body,'metadata',m.metadata);
@@ -647,7 +716,7 @@ begin
  me:=sav_ai_crm.inbox_current_member();
  if me.id is null then raise exception 'CRM membership required'; end if;
  select * into m from sav_ai_crm.messages where id=p_message_id and workspace_id=me.workspace_id;
- if m.id is null then raise exception 'Message not found'; end if;
+ if m.id is null or not exists(select 1 from sav_ai_crm.conversations c where c.id=m.conversation_id and c.workspace_id=me.workspace_id and sav_ai_crm.inbox_can_access(me.role,me.id,c.assigned_to)) then raise exception 'Message not found'; end if;
  update sav_ai_crm.messages set is_read=p_read,read_at=case when p_read then now() else null end,
    delivery_status=case when p_read and direction='outbound' and delivery_status in ('SENT','DELIVERED') then 'READ' else delivery_status end,updated_at=now()
  where id=m.id;
@@ -665,7 +734,7 @@ declare me sav_ai_crm.members; c sav_ai_crm.conversations; mid uuid;
 begin
  me:=sav_ai_crm.inbox_current_member();
  if me.id is null or not sav_ai_crm.inbox_can_write(me.role) then raise exception 'Internal note not permitted'; end if;
- select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id;
+ select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id and sav_ai_crm.inbox_can_access(me.role,me.id,assigned_to);
  if c.id is null then raise exception 'Conversation not found'; end if;
  if length(trim(coalesce(p_body,'')))<1 then raise exception 'Note required'; end if;
  insert into sav_ai_crm.messages(workspace_id,conversation_id,channel,direction,sender_type,sender_name,message_type,body,delivery_status,is_read,sent_by_member_id,metadata,updated_at)
@@ -808,7 +877,7 @@ declare me sav_ai_crm.members; c sav_ai_crm.conversations; tid uuid;
 begin
  me:=sav_ai_crm.inbox_current_member();
  if me.id is null or not sav_ai_crm.inbox_can_write(me.role) then raise exception 'Task creation not permitted'; end if;
- select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id and archived_at is null;
+ select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id and archived_at is null and sav_ai_crm.inbox_can_access(me.role,me.id,assigned_to);
  if c.id is null then raise exception 'Conversation not found'; end if;
  tid:=public.sav_ai_crm_create_task(p_title,p_description,p_followup_type,p_priority,'pending',p_due_at,p_reminder_at,c.lead_id,c.contact_id,'Created from Inbox conversation '||c.id::text,p_assignee_type,p_assigned_to,p_assigned_agent_id);
  insert into sav_ai_crm.conversation_activity(workspace_id,conversation_id,actor_member_id,activity_type,title,metadata)
@@ -828,7 +897,7 @@ declare me sav_ai_crm.members; c sav_ai_crm.conversations; agent sav_ai_crm.ai_a
 begin
  me:=sav_ai_crm.inbox_current_member();
  if me.id is null or not sav_ai_crm.inbox_can_write(me.role) then raise exception 'AI conversation action not permitted'; end if;
- select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id and archived_at is null;
+ select * into c from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id and archived_at is null and sav_ai_crm.inbox_can_access(me.role,me.id,assigned_to);
  if c.id is null then raise exception 'Conversation not found'; end if;
  select * into agent from sav_ai_crm.ai_agents where id=p_agent_id and workspace_id=me.workspace_id and status='active';
  if agent.id is null then raise exception 'AI agent not found'; end if;
@@ -1083,6 +1152,8 @@ revoke all on function public.sav_ai_crm_assign_conversation(uuid,text,uuid,uuid
 revoke all on function public.sav_ai_crm_set_conversation_state(uuid,text) from public,anon;
 revoke all on function public.sav_ai_crm_escalate_conversation(uuid,text) from public,anon;
 revoke all on function public.sav_ai_crm_queue_outbound_message(uuid,text,text,text,uuid,jsonb) from public,anon;
+revoke all on function public.sav_ai_crm_queue_approved_agent_message(uuid) from public,anon;
+revoke all on function public.sav_ai_crm_finalize_agent_message_action(uuid,uuid,boolean,text) from public,anon;
 revoke all on function public.sav_ai_crm_mark_message_sending(uuid) from public,anon;
 revoke all on function public.sav_ai_crm_record_message_result(uuid,boolean,text,text,text,text,text,jsonb) from public,anon;
 revoke all on function public.sav_ai_crm_mark_message_read(uuid,boolean) from public,anon;
@@ -1102,6 +1173,8 @@ grant execute on function public.sav_ai_crm_assign_conversation(uuid,text,uuid,u
 grant execute on function public.sav_ai_crm_set_conversation_state(uuid,text) to authenticated;
 grant execute on function public.sav_ai_crm_escalate_conversation(uuid,text) to authenticated;
 grant execute on function public.sav_ai_crm_queue_outbound_message(uuid,text,text,text,uuid,jsonb) to authenticated;
+grant execute on function public.sav_ai_crm_queue_approved_agent_message(uuid) to authenticated;
+grant execute on function public.sav_ai_crm_finalize_agent_message_action(uuid,uuid,boolean,text) to authenticated;
 grant execute on function public.sav_ai_crm_mark_message_sending(uuid) to authenticated;
 grant execute on function public.sav_ai_crm_record_message_result(uuid,boolean,text,text,text,text,text,jsonb) to authenticated;
 grant execute on function public.sav_ai_crm_mark_message_read(uuid,boolean) to authenticated;
