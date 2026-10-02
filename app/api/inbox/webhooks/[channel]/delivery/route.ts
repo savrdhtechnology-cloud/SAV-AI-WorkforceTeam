@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
-import { jsonError,serverAdminSupabase } from "../../../../../../../lib/ai/server-supabase";
-import { resolveChannelAdapter } from "../../../../../../../lib/channels/server-registry";
+import { jsonError,serverAdminSupabase } from "../../../../../../lib/ai/server-supabase";
+import { resolveChannelAdapter } from "../../../../../../lib/channels/server-registry";
 
 export async function POST(req:NextRequest,{params}:{params:Promise<{channel:string}>}){
   const {channel}=await params;
