@@ -80,3 +80,5 @@
   *,*:before,*:after{animation-duration:.001ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.001ms!important}
   [data-reveal]{opacity:1;transform:none}
 }
+
+/* production-refresh: animated landing v2 */
