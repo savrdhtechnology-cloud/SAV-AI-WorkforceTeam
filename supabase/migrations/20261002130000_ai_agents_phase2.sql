@@ -351,6 +351,13 @@ begin
    'executions',coalesce((select jsonb_agg(to_jsonb(e) order by e.created_at desc) from (select * from sav_ai_crm.ai_agent_executions where agent_id=a.id order by created_at desc limit 50) e),'[]'::jsonb),
    'actions',coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at desc) from (select * from sav_ai_crm.ai_agent_actions where agent_id=a.id order by created_at desc limit 50) x),'[]'::jsonb),
    'escalations',coalesce((select jsonb_agg(to_jsonb(s) order by s.created_at desc) from (select * from sav_ai_crm.ai_agent_escalations where agent_id=a.id order by created_at desc limit 50) s),'[]'::jsonb),
+   'tasks',coalesce((select jsonb_agg(to_jsonb(t) order by t.created_at desc) from (select id,title,status,priority,due_at,lead_id,contact_id,created_at,completed_at from sav_ai_crm.tasks where workspace_id=me.workspace_id and assigned_agent_id=a.id and archived_at is null order by created_at desc limit 50) t),'[]'::jsonb),
+   'audit',coalesce((select jsonb_agg(to_jsonb(q) order by q.created_at desc) from (
+      select * from sav_ai_crm.audit_logs
+      where workspace_id=me.workspace_id
+        and (entity_id=a.id or metadata->>'agent_id'=a.id::text)
+      order by created_at desc limit 50
+   ) q),'[]'::jsonb),
    'permissions',jsonb_build_object('manage',sav_ai_crm.agent_can_manage(me.role),'admin',sav_ai_crm.agent_is_admin(me.role))
  ) into result
  from sav_ai_crm.ai_agents a where a.id=p_agent_id and a.workspace_id=me.workspace_id;
