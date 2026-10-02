@@ -566,15 +566,14 @@ begin
  select * into account from sav_ai_crm.channel_accounts
  where workspace_id=me.workspace_id and channel=c.channel and status='connected'
  order by updated_at desc limit 1;
- if account.id is null then raise exception 'CHANNEL_PROVIDER_NOT_CONFIGURED'; end if;
  sender_identity:=account.sender_identity;
- if sender_identity is null then raise exception 'CHANNEL_PROVIDER_NOT_CONFIGURED'; end if;
 
  insert into sav_ai_crm.messages(workspace_id,conversation_id,channel,direction,sender_type,sender_name,sender,recipient,message_type,body,delivery_status,is_read,sent_by_member_id,sent_by_agent_id,metadata,updated_at)
  values(me.workspace_id,c.id,c.channel,'outbound',case when p_agent_id is null then 'human' else 'ai_agent' end,
    case when p_agent_id is null then coalesce(me.full_name,me.email) else agent.display_name end,
    sender_identity,nullif(trim(coalesce(p_recipient,'')),''),p_message_type,nullif(p_body,''),'QUEUED',true,
-   case when p_agent_id is null then me.id else null end,p_agent_id,jsonb_build_object('channel_account_id',account.id,'provider',account.provider),now())
+   case when p_agent_id is null then me.id else null end,p_agent_id,
+   jsonb_build_object('channel_account_id',account.id,'provider',coalesce(account.provider,'unconfigured'),'provider_configured',account.id is not null and sender_identity is not null),now())
  returning id into mid;
 
  if jsonb_typeof(coalesce(p_attachments,'[]'::jsonb))='array' then
@@ -589,7 +588,7 @@ begin
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
  values(me.workspace_id,auth.uid(),'inbox.message.queued','message',mid,jsonb_build_object('conversation_id',c.id,'channel',c.channel,'agent_id',p_agent_id));
 
- return jsonb_build_object('message_id',mid,'conversation_id',c.id,'channel',c.channel,'channel_account_id',account.id,'provider',account.provider,'sender',sender_identity,'recipient',p_recipient,'approval_required',false);
+ return jsonb_build_object('message_id',mid,'conversation_id',c.id,'channel',c.channel,'channel_account_id',account.id,'provider',coalesce(account.provider,'unconfigured'),'sender',sender_identity,'recipient',p_recipient,'provider_configured',account.id is not null and sender_identity is not null,'approval_required',false);
 end $$;
 
 create or replace function public.sav_ai_crm_mark_message_sending(p_message_id uuid)
@@ -760,6 +759,8 @@ end $$;
 
 revoke all on function public.sav_ai_crm_resolve_channel_account(text,text,text,text) from public,anon,authenticated;
 revoke all on function public.sav_ai_crm_persist_inbound_message(uuid,uuid,text,text,text,text,text,text,text,text,text,timestamptz,jsonb,jsonb) from public,anon,authenticated;
+grant execute on function public.sav_ai_crm_resolve_channel_account(text,text,text,text) to service_role;
+grant execute on function public.sav_ai_crm_persist_inbound_message(uuid,uuid,text,text,text,text,text,text,text,text,text,timestamptz,jsonb,jsonb) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- Channel delivery events
@@ -791,6 +792,7 @@ begin
  return jsonb_build_object('duplicate',false,'message_id',m.id,'conversation_id',m.conversation_id,'status',p_status);
 end $$;
 revoke all on function public.sav_ai_crm_apply_delivery_event(uuid,text,text,text,text,text,text,jsonb) from public,anon,authenticated;
+grant execute on function public.sav_ai_crm_apply_delivery_event(uuid,text,text,text,text,text,text,jsonb) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- Task/follow-up integration through existing Phase 1 boundary
