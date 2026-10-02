@@ -153,6 +153,10 @@ create table if not exists sav_ai_crm.workflow_templates (
   unique(workspace_id,template_key)
 );
 
+alter table sav_ai_crm.ai_agent_escalations
+  add column if not exists workflow_id uuid references sav_ai_crm.workflows(id) on delete set null,
+  add column if not exists workflow_execution_id uuid references sav_ai_crm.workflow_executions(id) on delete set null;
+
 create index if not exists workflows_workspace_status_idx on sav_ai_crm.workflows(workspace_id,status,updated_at desc);
 create index if not exists workflow_nodes_current_idx on sav_ai_crm.workflow_nodes(workflow_id,workflow_version,node_type);
 create index if not exists workflow_edges_current_idx on sav_ai_crm.workflow_edges(workflow_id,workflow_version,source_key);
@@ -476,6 +480,33 @@ begin
  values(me.workspace_id,auth.uid(),'workflow.archive','workflow',p_workflow_id);
 end $$;
 
+create or replace function public.sav_ai_crm_dispatch_workflow_event(
+ p_event text,p_context jsonb,p_event_key text
+) returns jsonb language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members; tr record; results jsonb:='[]'::jsonb; eid uuid; run_result jsonb; idem text;
+begin
+ me:=sav_ai_crm.workflow_current_member();
+ if me.id is null then raise exception 'CRM membership required'; end if;
+ if p_event not in ('NEW_LEAD','LEAD_STATUS_CHANGED','PIPELINE_STAGE_CHANGED','TASK_CREATED','TASK_COMPLETED','FOLLOWUP_DUE','REMINDER_DUE','CONVERSATION_RECEIVED','AI_ESCALATION','MANUAL_TRIGGER','SCHEDULED_TRIGGER') then raise exception 'Invalid workflow event'; end if;
+ if coalesce(trim(p_event_key),'')='' then raise exception 'Event idempotency key is required'; end if;
+
+ for tr in
+   select t.*,w.version,w.status from sav_ai_crm.workflow_triggers t
+   join sav_ai_crm.workflows w on w.id=t.workflow_id
+   where t.workspace_id=me.workspace_id and t.event=p_event and t.enabled=true and w.status='active' and w.archived_at is null
+ loop
+   if sav_ai_crm.workflow_conditions_match(tr.conditions,coalesce(p_context,'{}')) then
+     idem:='event:'||p_event||':'||p_event_key||':'||tr.workflow_id::text;
+     eid:=public.sav_ai_crm_start_workflow(tr.workflow_id,coalesce(p_context,'{}'),idem,p_event);
+     run_result:=public.sav_ai_crm_run_workflow_execution(eid);
+     results:=results||jsonb_build_array(jsonb_build_object('workflow_id',tr.workflow_id,'execution_id',eid,'result',run_result));
+   end if;
+ end loop;
+ return results;
+end $;
+
 -- Test plan ------------------------------------------------------------------
 create or replace function public.sav_ai_crm_test_workflow(p_workflow_id uuid,p_context jsonb)
 returns jsonb language plpgsql stable security definer
@@ -529,10 +560,10 @@ begin
  if me.id is null or me.role='viewer' then raise exception 'Workflow execution not permitted'; end if;
  select * into w from sav_ai_crm.workflows where id=p_workflow_id and workspace_id=me.workspace_id and archived_at is null;
  if w.id is null then raise exception 'Workflow not found'; end if;
- if w.status<>'active' and p_trigger<>'MANUAL_TRIGGER' then raise exception 'Workflow is not active'; end if;
+ if w.status<>'active' then raise exception 'Workflow is not active'; end if;
  first_node:=(select id from sav_ai_crm.workflow_nodes where workflow_id=w.id and workflow_version=w.version and node_type='TRIGGER' order by created_at limit 1);
  if first_node is null then raise exception 'Workflow has no trigger node'; end if;
- idem:=coalesce(nullif(p_idempotency_key,''),encode(digest(w.id::text||':'||coalesce(p_trigger,'')||':'||coalesce(p_context::text,'{}')||':'||clock_timestamp()::text,'sha256'),'hex'));
+ idem:=coalesce(nullif(p_idempotency_key,''),md5(w.id::text||':'||coalesce(p_trigger,'')||':'||coalesce(p_context::text,'{}')||':'||clock_timestamp()::text));
  begin
   insert into sav_ai_crm.workflow_executions(workspace_id,workflow_id,workflow_version,trigger,context,current_node_id,execution_state,idempotency_key,started_at)
   values(me.workspace_id,w.id,w.version,p_trigger,coalesce(p_context,'{}'),first_node,'queued',idem,now())
@@ -703,8 +734,8 @@ begin
      agent_id:=nullif(n.config->>'agent_id','')::uuid;
      if agent_id is null or not exists(select 1 from sav_ai_crm.ai_agents where id=agent_id and workspace_id=ex.workspace_id) then raise exception 'Escalation requires a valid agent'; end if;
      target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(coalesce(n.config->>'lead_id_path','lead.id'),'.'))::text),'null')::uuid;
-     insert into sav_ai_crm.ai_agent_escalations(workspace_id,agent_id,lead_id,execution_id,reason,status,details)
-     values(ex.workspace_id,agent_id,target_id,null,coalesce(n.config->>'reason','FAILED_ACTION'),'open',coalesce(n.config->>'details','Workflow escalation: '||w.name));
+     insert into sav_ai_crm.ai_agent_escalations(workspace_id,agent_id,lead_id,execution_id,workflow_id,workflow_execution_id,reason,status,details)
+     values(ex.workspace_id,agent_id,target_id,null,w.id,ex.id,coalesce(n.config->>'reason','FAILED_ACTION'),'open',coalesce(n.config->>'details','Workflow escalation: '||w.name));
      update sav_ai_crm.workflow_node_executions set status='completed',output='{"escalated":true}'::jsonb,completed_at=now()
        where execution_id=ex.id and node_execution_id=node_exec_id;
      next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,null);
@@ -854,6 +885,7 @@ revoke all on function public.sav_ai_crm_workflow_detail(uuid) from public,anon;
 revoke all on function public.sav_ai_crm_set_workflow_status(uuid,text) from public,anon;
 revoke all on function public.sav_ai_crm_duplicate_workflow(uuid) from public,anon;
 revoke all on function public.sav_ai_crm_archive_workflow(uuid) from public,anon;
+revoke all on function public.sav_ai_crm_dispatch_workflow_event(text,jsonb,text) from public,anon;
 revoke all on function public.sav_ai_crm_test_workflow(uuid,jsonb) from public,anon;
 revoke all on function public.sav_ai_crm_start_workflow(uuid,jsonb,text,text) from public,anon;
 revoke all on function public.sav_ai_crm_run_workflow_execution(uuid) from public,anon;
@@ -871,6 +903,7 @@ grant execute on function public.sav_ai_crm_workflow_detail(uuid) to authenticat
 grant execute on function public.sav_ai_crm_set_workflow_status(uuid,text) to authenticated;
 grant execute on function public.sav_ai_crm_duplicate_workflow(uuid) to authenticated;
 grant execute on function public.sav_ai_crm_archive_workflow(uuid) to authenticated;
+grant execute on function public.sav_ai_crm_dispatch_workflow_event(text,jsonb,text) to authenticated;
 grant execute on function public.sav_ai_crm_test_workflow(uuid,jsonb) to authenticated;
 grant execute on function public.sav_ai_crm_start_workflow(uuid,jsonb,text,text) to authenticated;
 grant execute on function public.sav_ai_crm_run_workflow_execution(uuid) to authenticated;
