@@ -362,7 +362,16 @@ function Dashboard({ dashboard }: { dashboard: any }) {
   </>;
 }
 
-function LeadsView({ leads, search, setSearch, leadStatus, setLeadStatus, updateLeadStatus }: any) {
+type LeadsViewProps = {
+  leads: Lead[];
+  search: string;
+  setSearch: (value: string) => void;
+  leadStatus: string;
+  setLeadStatus: (value: string) => void;
+  updateLeadStatus: (id: string, status: string) => Promise<void>;
+};
+
+function LeadsView({ leads, search, setSearch, leadStatus, setLeadStatus, updateLeadStatus }: LeadsViewProps) {
   return <>
     <div className="crm-toolbar">
       <div className="crm-search"><Search size={15} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search leads by name, company, email or phone..." /></div>
