@@ -130,9 +130,11 @@ test("conversation escalation reuses Phase 2 escalation records",()=>{
 });
 
 test("audit and activity records cover required Inbox operations",()=>{
-  for(const action of ["conversation_created","message_received","message_sent","provider_failure","assignment","ai_assignment","escalation","conversation_close","conversation_reopen","conversation_archived","task_created","followup_created"]){
+  for(const action of ["conversation_created","message_received","message_sent","provider_failure","assignment","ai_assignment","escalation","conversation_archived","task_created","followup_created"]){
     assert.match(migration,new RegExp(action));
   }
+  assert.match(migration,/'conversation_'\|\|p_action/);
+  assert.match(migration,/inbox\.conversation\.'\|\|p_action/);
   assert.match(migration,/inbox\.message\.queued/);
   assert.match(migration,/inbox\.delivery\.update/);
   assert.match(migration,/inbox\.channel\.configure/);
