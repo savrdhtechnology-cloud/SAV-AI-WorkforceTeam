@@ -184,3 +184,58 @@ footer{animation:footerFloat 6s ease-in-out infinite}
   .integration-cloud:before{width:210px;height:210px}
   .channel-track{gap:28px}
 }
+
+
+/* Framer Motion support */
+.scroll-progress{
+  position:fixed;
+  top:0;
+  left:0;
+  right:0;
+  height:3px;
+  z-index:100;
+  transform-origin:0 50%;
+  background:linear-gradient(90deg,#49E3FF,#5B8CFF,#9B8CFF);
+  box-shadow:0 0 18px rgba(73,227,255,.35);
+}
+.console-shell{will-change:transform}
+.console-scanline{
+  position:absolute;
+  left:0;
+  right:0;
+  top:0;
+  height:18%;
+  pointer-events:none;
+  z-index:6;
+  background:linear-gradient(180deg,transparent,rgba(73,227,255,.08),transparent);
+  filter:blur(.2px);
+}
+.orbit-ring{
+  position:absolute;
+  left:50%;
+  top:50%;
+  border:1px solid rgba(73,227,255,.16);
+  border-radius:50%;
+  transform-origin:center;
+  pointer-events:none;
+}
+.orbit-ring-one{
+  width:250px;
+  height:250px;
+  margin-left:-125px;
+  margin-top:-125px;
+}
+.orbit-ring-two{
+  width:350px;
+  height:350px;
+  margin-left:-175px;
+  margin-top:-175px;
+  border-color:rgba(91,140,255,.12);
+}
+.hero-copy,.hero-product,.feature-card,.agent-card,.workflow-panel,.security-card,.integration-cloud,.cta-section{
+  will-change:transform,opacity;
+}
+@media(max-width:620px){
+  .orbit-ring-two{width:290px;height:290px;margin-left:-145px;margin-top:-145px}
+  .orbit-ring-one{width:210px;height:210px;margin-left:-105px;margin-top:-105px}
+}
