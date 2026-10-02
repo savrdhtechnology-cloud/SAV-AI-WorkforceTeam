@@ -97,10 +97,17 @@ test("eight editable workflow templates are seeded",()=>{
 });
 
 test("workflow APIs are represented by the client service",()=>{
+  for(const path of ["/api/workflows","/duplicate","/test","/execute","/executions","/api/workflow-executions/","/api/workflow-approvals/"]){
+    const escaped=path.replace(/[-/\\^$*+?.()|[\]{}]/g,"\\test("workflow APIs are represented by the client service",()=>{
   for(const path of ["/api/workflows","/enable","/pause","/disable","/duplicate","/test","/execute","/executions","/api/workflow-executions/","/api/workflow-approvals/"]){
     const escaped=path.replace(/[-/\\^$*+?.()|[\]{}]/g,"\\$&");
     assert.match(service,new RegExp(escaped));
   }
+});");
+    assert.match(service,new RegExp(escaped));
+  }
+  assert.match(service,/op:"enable"\|"pause"\|"disable"/);
+  assert.match(service,/\/api\/workflows\/\$\{id\}\/\$\{op\}/);
 });
 
 test("anonymous access is revoked from public workflow RPCs",()=>{
