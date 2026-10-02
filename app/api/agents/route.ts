@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { bearerPresent, jsonError, serverSupabase } from "@/lib/ai/server-supabase";
+import { bearerPresent, jsonError, serverSupabase } from "../../../lib/ai/server-supabase";
 
 export async function GET(req:NextRequest){
   if(!bearerPresent(req)) return jsonError("Authentication required",401,"UNAUTHORIZED");
