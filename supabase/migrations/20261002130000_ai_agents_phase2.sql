@@ -641,6 +641,23 @@ begin
  return eid;
 end $$;
 
+create or replace function public.sav_ai_crm_complete_agent_execution(
+ p_execution_id uuid,p_planned_action jsonb,p_output jsonb default null,p_approval_status text default 'not_required'
+) returns void language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members;
+begin
+ me:=sav_ai_crm.agent_current_member();
+ if me.id is null then raise exception 'CRM membership required'; end if;
+ if p_approval_status not in ('not_required','pending','approved','rejected') then raise exception 'Invalid approval status'; end if;
+ update sav_ai_crm.ai_agent_executions set
+   planned_action=p_planned_action,approval_status=p_approval_status,execution_status='completed',
+   output=coalesce(p_output,'{}'),started_at=coalesce(started_at,now()),completed_at=now()
+ where id=p_execution_id and workspace_id=me.workspace_id;
+ if not found then raise exception 'Execution not found'; end if;
+end $;
+
 create or replace function public.sav_ai_crm_fail_agent_execution(p_execution_id uuid,p_error text,p_output jsonb default null)
 returns void language plpgsql security definer
 set search_path=public,sav_ai_crm
@@ -669,6 +686,7 @@ revoke all on function public.sav_ai_crm_request_agent_action(uuid,text,text,uui
 revoke all on function public.sav_ai_crm_review_agent_action(uuid,text,text) from public,anon;
 revoke all on function public.sav_ai_crm_execute_agent_action(uuid) from public,anon;
 revoke all on function public.sav_ai_crm_create_agent_execution(uuid,text,jsonb) from public,anon;
+revoke all on function public.sav_ai_crm_complete_agent_execution(uuid,jsonb,jsonb,text) from public,anon;
 revoke all on function public.sav_ai_crm_fail_agent_execution(uuid,text,jsonb) from public,anon;
 
 grant execute on function public.sav_ai_crm_create_agent(text,text,text,text) to authenticated;
@@ -682,6 +700,7 @@ grant execute on function public.sav_ai_crm_request_agent_action(uuid,text,text,
 grant execute on function public.sav_ai_crm_review_agent_action(uuid,text,text) to authenticated;
 grant execute on function public.sav_ai_crm_execute_agent_action(uuid) to authenticated;
 grant execute on function public.sav_ai_crm_create_agent_execution(uuid,text,jsonb) to authenticated;
+grant execute on function public.sav_ai_crm_complete_agent_execution(uuid,jsonb,jsonb,text) to authenticated;
 grant execute on function public.sav_ai_crm_fail_agent_execution(uuid,text,jsonb) to authenticated;
 
 commit;
