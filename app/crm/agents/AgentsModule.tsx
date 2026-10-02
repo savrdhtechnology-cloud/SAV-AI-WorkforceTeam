@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Activity, Bot, CheckCircle2, CircleAlert, Loader2, Pause, Play, Save, Search, ShieldAlert, TestTube2 } from "lucide-react";
 import { crmSupabase } from "../supabase-client";
 import { AgentRecord } from "./agent-types";
-import { executeAgent, getAgent, listAgents, setAgentStatus, updateAgent } from "./agent-service";
+import { executeAgent, getAgent, listAgents, reviewAgentAction, setAgentStatus, updateAgent } from "./agent-service";
 
 const tabs=["Overview","Role & Instructions","Capabilities","Tasks","Channels","Knowledge","Workflows","Working Hours","Limits","Escalation","Activity","Audit"] as const;
 
@@ -63,6 +63,16 @@ export default function AgentsModule({focusedId}:{focusedId?:string}){
     try{setTestResult(await executeAgent(selected,testInput,{lead_id:leadId||null}));}
     catch(e){setTestResult({error:"AI_PROVIDER_NOT_CONFIGURED",message:e instanceof Error?e.message:"Execution failed."});}
   }
+  async function review(actionId:string,decision:"approve"|"reject"){
+    setError("");setSuccess("");
+    try{
+      await reviewAgentAction(actionId,decision,decision==="approve"?"Approved from agent detail":"Rejected from agent detail");
+      setSuccess(decision==="approve"?"Action approved.":"Action rejected.");
+      if(selected)setDetail(await getAgent(selected));
+      const data=await listAgents();setMetrics(data.metrics);
+    }catch(e){setError(e instanceof Error?e.message:"Approval review failed.");}
+  }
+
 
   const current=useMemo(()=>agents.find(a=>a.id===selected),[agents,selected]);
   if(loading && !agents.length)return <div className="agent-loading"><Loader2 className="spin" size={20}/> Loading AI agents...</div>;
@@ -109,7 +119,7 @@ export default function AgentsModule({focusedId}:{focusedId?:string}){
 
           <div className="agent-tabs">{tabs.map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}</button>)}</div>
           <div className="agent-tab-body">
-            {tab==="Overview"&&<Overview detail={detail}/>}
+            {tab==="Overview"&&<><Overview detail={detail}/><ApprovalQueue rows={detail.approvals||[]} onReview={review}/></>}
             {tab==="Role & Instructions"&&<EditBasics detail={detail} setDetail={setDetail}/>}
             {tab==="Capabilities"&&<CapabilityView rows={detail.capabilities||[]}/>}
             {tab==="Tasks"&&<RecordList rows={detail.tasks||[]} empty="No AI-assigned tasks yet."/>}
@@ -136,6 +146,13 @@ export default function AgentsModule({focusedId}:{focusedId?:string}){
   </div>;
 }
 
+function ApprovalQueue({rows,onReview}:{rows:any[];onReview:(id:string,decision:"approve"|"reject")=>void}){
+  const pending=rows.filter(x=>x.status==="pending");
+  if(!pending.length)return null;
+  return <div className="agent-approval-queue"><div className="agent-console-head"><ShieldAlert size={15}/><div><b>Approval Required</b><span>{pending.length} pending high/critical action(s)</span></div></div>
+    {pending.map(x=><div className="agent-approval-row" key={x.id}><div><b>{x.action}</b><span>{x.risk_level} risk · {x.target_type}</span></div><div><button onClick={()=>onReview(x.action_id,"reject")}>Reject</button><button className="primary" onClick={()=>onReview(x.action_id,"approve")}>Approve</button></div></div>)}
+  </div>;
+}
 function Metric({label,value}:{label:string;value:number}){return <div className="crm-card agent-metric"><span>{label}</span><strong>{value}</strong></div>}
 function Overview({detail}:{detail:any}){return <div className="agent-overview-grid">
   <Info label="Status" value={detail.agent.status}/><Info label="Autonomy" value={detail.agent.autonomy_level}/><Info label="Confidence" value={String(detail.agent.confidence_threshold)}/><Info label="Approval default" value={detail.agent.approval_required?"Required":"Not required"}/>
