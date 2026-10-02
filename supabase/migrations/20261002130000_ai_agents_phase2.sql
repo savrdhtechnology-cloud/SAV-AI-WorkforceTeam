@@ -540,27 +540,40 @@ returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
 as $$
 declare me sav_ai_crm.members; a sav_ai_crm.ai_agent_actions; agent sav_ai_crm.ai_agents; task_id uuid; lead_rec sav_ai_crm.leads;
+ runtime_agent_id uuid; effective_workspace uuid;
 begin
  me:=sav_ai_crm.agent_current_member();
- if me.id is null then raise exception 'CRM membership required'; end if;
- select * into a from sav_ai_crm.ai_agent_actions where id=p_action_id and workspace_id=me.workspace_id for update;
+ runtime_agent_id:=sav_ai_crm.agent_runtime_id();
+
+ if runtime_agent_id is null and me.id is null then raise exception 'Authenticated CRM or agent identity required'; end if;
+
+ select * into a from sav_ai_crm.ai_agent_actions where id=p_action_id for update;
  if a.id is null then raise exception 'Action not found'; end if;
+
+ if runtime_agent_id is not null then
+   if a.agent_id<>runtime_agent_id then raise exception 'Agent identity mismatch'; end if;
+   effective_workspace:=a.workspace_id;
+ else
+   effective_workspace:=effective_workspace;
+   if a.workspace_id<>effective_workspace then raise exception 'Action is outside this workspace'; end if;
+ end if;
+
  if a.approval_required and a.status<>'approved' then raise exception 'Human approval required'; end if;
  if a.status not in ('approved','pending') then raise exception 'Action is not executable'; end if;
- select * into agent from sav_ai_crm.ai_agents where id=a.agent_id and workspace_id=me.workspace_id;
+ select * into agent from sav_ai_crm.ai_agents where id=a.agent_id and workspace_id=effective_workspace;
  if agent.status<>'active' then raise exception 'Agent is not active'; end if;
 
  update sav_ai_crm.ai_agent_actions set status='executing',updated_at=now() where id=a.id;
 
  if a.action in ('CREATE_TASK','CREATE_FOLLOWUP') then
    if a.target_type<>'lead' or a.target_id is null then raise exception 'Task creation requires a lead target'; end if;
-   select * into lead_rec from sav_ai_crm.leads where id=a.target_id and workspace_id=me.workspace_id;
+   select * into lead_rec from sav_ai_crm.leads where id=a.target_id and workspace_id=effective_workspace;
    if lead_rec.id is null then raise exception 'Lead not found'; end if;
    insert into sav_ai_crm.tasks(
      workspace_id,lead_id,title,description,task_type,followup_type,status,priority,due_at,reminder_at,
      assigned_agent_id,notes
    ) values(
-     me.workspace_id,lead_rec.id,
+     effective_workspace,lead_rec.id,
      coalesce(nullif(a.payload->>'title',''),agent.display_name||' follow-up'),
      nullif(a.payload->>'description',''),'followup',
      case when a.action='CREATE_FOLLOWUP' then coalesce(nullif(a.payload->>'followup_type',''),'general') else 'general' end,
@@ -570,21 +583,21 @@ begin
      'Created by: '||agent.display_name
    ) returning id into task_id;
    insert into sav_ai_crm.activities(workspace_id,lead_id,task_id,activity_type,title,description,metadata)
-   values(me.workspace_id,lead_rec.id,task_id,
+   values(effective_workspace,lead_rec.id,task_id,
      case when a.action='CREATE_FOLLOWUP' then 'agent_followup_created' else 'agent_task_created' end,
      agent.display_name||' created task',coalesce(a.payload->>'title','Follow-up task'),
      jsonb_build_object('agent_id',agent.id,'agent_name',agent.display_name,'action_id',a.id));
  elsif a.action='CREATE_NOTE' then
    if a.target_type<>'lead' or a.target_id is null then raise exception 'Note requires a lead target'; end if;
    update sav_ai_crm.leads set notes=concat_ws(E'\n',notes,'['||agent.display_name||'] '||coalesce(a.payload->>'note','')),
-     updated_at=now() where id=a.target_id and workspace_id=me.workspace_id;
+     updated_at=now() where id=a.target_id and workspace_id=effective_workspace;
    if not found then raise exception 'Lead not found'; end if;
    insert into sav_ai_crm.activities(workspace_id,lead_id,activity_type,title,description,metadata)
-   values(me.workspace_id,a.target_id,'agent_note_created',agent.display_name||' added note',a.payload->>'note',
+   values(effective_workspace,a.target_id,'agent_note_created',agent.display_name||' added note',a.payload->>'note',
      jsonb_build_object('agent_id',agent.id,'action_id',a.id));
  elsif a.action='CREATE_ESCALATION' then
    insert into sav_ai_crm.ai_agent_escalations(workspace_id,agent_id,lead_id,conversation_id,task_id,reason,details)
-   values(me.workspace_id,agent.id,
+   values(effective_workspace,agent.id,
      case when a.target_type='lead' then a.target_id else null end,
      case when a.target_type='conversation' then a.target_id else null end,
      case when a.target_type='task' then a.target_id else null end,
@@ -599,7 +612,7 @@ begin
    result=jsonb_build_object('task_id',task_id),updated_at=now(),completed_at=now() where id=a.id;
 
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
- values(me.workspace_id,auth.uid(),'agent.action.completed','ai_agent_action',a.id,jsonb_build_object('agent_id',agent.id,'capability',a.action,'task_id',task_id));
+ values(effective_workspace,auth.uid(),'agent.action.completed','ai_agent_action',a.id,jsonb_build_object('agent_id',agent.id,'capability',a.action,'task_id',task_id));
 
  return jsonb_build_object('action_id',a.id,'status','completed','task_id',task_id);
 end $$;
