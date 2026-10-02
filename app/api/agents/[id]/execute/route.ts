@@ -20,5 +20,9 @@ export async function POST(req:NextRequest,{params}:{params:Promise<{id:string}>
    });
    return Response.json({execution_id:executionId,error:result.error,message:result.message},{status:503});
  }
- return Response.json({execution_id:executionId,plan:result.data});
+ const {error:completeError}=await supabase.rpc("sav_ai_crm_complete_agent_execution",{
+   p_execution_id:executionId,p_planned_action:result.data,p_output:{plan:result.data},p_approval_status:"not_required"
+ });
+ if(completeError) return jsonError(completeError.message,500,"EXECUTION_COMPLETE_FAILED");
+ return Response.json({execution_id:executionId,plan:result.data,status:"completed"});
 }
