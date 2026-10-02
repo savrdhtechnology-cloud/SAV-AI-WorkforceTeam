@@ -174,6 +174,7 @@ export default function WorkflowsModule({focusedId}:{focusedId?:string}){
                 <b>Inspector</b><p>Select a node to edit its persisted configuration.</p>
                 <div className="workflow-version-list"><b>Versions</b>{(detail.versions||[]).map((v:any)=><span key={v.version}>v{v.version} · {new Date(v.created_at).toLocaleDateString("en-IN")}</span>)}</div>
               </>}
+              <EdgeEditor graph={graph} setGraph={setGraph}/>
             </div>
           </div>
 
@@ -228,6 +229,17 @@ function NodeInspector({node,agents,onChange,onConnect,onDelete}:{node:WorkflowN
   </div>;
 }
 
+function EdgeEditor({graph,setGraph}:{graph:WorkflowGraph;setGraph:(updater:(g:WorkflowGraph)=>WorkflowGraph)=>void}){
+  if(!graph.edges.length)return null;
+  return <div className="workflow-edge-editor"><b>Connections</b>{graph.edges.map(edge=><div key={edge.id}>
+    <span>{edge.source} → {edge.target}</span>
+    <select value={edge.branch||""} onChange={e=>setGraph(g=>({...g,edges:g.edges.map(x=>x.id===edge.id?{...x,branch:e.target.value||null}:x)}))}>
+      <option value="">default</option><option value="true">true</option><option value="false">false</option><option value="approved">approved</option><option value="rejected">rejected</option>
+    </select>
+    <button onClick={()=>setGraph(g=>({...g,edges:g.edges.filter(x=>x.id!==edge.id)}))}><X size={10}/></button>
+  </div>)}</div>;
+}
+
 function CreateWorkflowModal({templates,onClose,onCreated}:{templates:any[];onClose:()=>void;onCreated:(id:string)=>void}){
   const [saving,setSaving]=useState(false);const [error,setError]=useState("");
   async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();const fd=new FormData(e.currentTarget);const templateId=String(fd.get("template")||"");const template=templates.find(t=>t.id===templateId);setSaving(true);setError("");try{const r=await createWorkflow({name:String(fd.get("name")||""),description:String(fd.get("description")||""),trigger_type:String(fd.get("trigger")||template?.trigger_type||"MANUAL_TRIGGER"),graph:template?.definition||blankGraph,template_id:templateId||null});onCreated(r.id);}catch(e){setError(e instanceof Error?e.message:"Create failed.");}finally{setSaving(false);}}
@@ -251,4 +263,13 @@ function defaultConfig(type:WorkflowNodeType,agents:any[]):Record<string,unknown
   if(type==="ACTION")return {action:"ADD_NOTE",lead_id_path:"lead.id",note:"Workflow note"};
   return {};
 }
-function nodeSummary(n:WorkflowNode){if(n.type==="WAIT")return `${n.config.delay_seconds||0}s`;if(n.type==="CONDITION")return String((n.config.condition as any)?.field||"condition");if(n.type==="AI_AGENT")return String(n.config.action||"agent action");return String(n.config.action||n.config.title||"");}
+function nodeSummary(n:WorkflowNode){
+  if(n.type==="WAIT")return `${n.config.delay_seconds||0}s`;
+  if(n.type==="CONDITION"){
+    const condition=n.config.condition;
+    if(condition&&typeof condition==="object"&&!Array.isArray(condition)&&"field" in condition)return String((condition as Record<string,unknown>).field||"condition");
+    return "condition";
+  }
+  if(n.type==="AI_AGENT")return String(n.config.action||"agent action");
+  return String(n.config.action||n.config.title||"");
+}
