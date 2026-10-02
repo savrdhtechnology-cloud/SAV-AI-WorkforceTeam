@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { bearerPresent,jsonError,serverSupabase } from "@/lib/ai/server-supabase";
+import { bearerPresent,jsonError,serverSupabase } from "../../../../../lib/ai/server-supabase";
 export async function POST(req:NextRequest,{params}:{params:Promise<{id:string}>}){
  if(!bearerPresent(req)) return jsonError("Authentication required",401,"UNAUTHORIZED");
  const {id}=await params; const {error}=await serverSupabase(req).rpc("sav_ai_crm_set_agent_status",{p_agent_id:id,p_status:"active"});
