@@ -144,6 +144,19 @@ begin
       where l.workspace_id = me.workspace_id
       limit 500
     ), '[]'::jsonb),
+    'contacts', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', c.id,
+        'first_name', c.first_name,
+        'last_name', c.last_name,
+        'company', c.company,
+        'email', c.email,
+        'phone', c.phone
+      ) order by c.updated_at desc nulls last, c.created_at desc)
+      from sav_ai_crm.contacts c
+      where c.workspace_id = me.workspace_id
+      limit 500
+    ), '[]'::jsonb),
     'followup_types', jsonb_build_array(
       'general','call','whatsapp','email','meeting','document','payment','proposal','site_visit','support'
     ),
@@ -243,6 +256,10 @@ begin
         or coalesce(t.description,'') ilike '%'||p_search||'%'
         or coalesce(t.notes,'') ilike '%'||p_search||'%'
         or coalesce(l.title,'') ilike '%'||p_search||'%'
+        or concat_ws(' ',c.first_name,c.last_name) ilike '%'||p_search||'%'
+        or coalesce(c.company,'') ilike '%'||p_search||'%'
+        or coalesce(c.email,'') ilike '%'||p_search||'%'
+        or coalesce(c.phone,'') ilike '%'||p_search||'%'
         or coalesce(m.full_name,m.email,'') ilike '%'||p_search||'%'
         or coalesce(a.name,'') ilike '%'||p_search||'%'
       )
@@ -318,6 +335,7 @@ create or replace function public.sav_ai_crm_create_task(
   p_due_at timestamptz default null,
   p_reminder_at timestamptz default null,
   p_lead_id uuid default null,
+  p_contact_id uuid default null,
   p_notes text default null,
   p_assignee_type text default 'human',
   p_assigned_to uuid default null,
@@ -342,9 +360,17 @@ begin
   if p_assignee_type not in ('human','ai') then raise exception 'Invalid assignee type'; end if;
   if p_reminder_at is not null and p_due_at is not null and p_reminder_at > p_due_at then raise exception 'Reminder cannot be after due time'; end if;
 
+  if p_lead_id is not null and p_contact_id is not null then
+    raise exception 'A task can be linked to a lead or customer, not both';
+  end if;
+
   if p_lead_id is not null and not exists (
     select 1 from sav_ai_crm.leads where id=p_lead_id and workspace_id=me.workspace_id
   ) then raise exception 'Related lead is outside this workspace'; end if;
+
+  if p_contact_id is not null and not exists (
+    select 1 from sav_ai_crm.contacts where id=p_contact_id and workspace_id=me.workspace_id
+  ) then raise exception 'Related customer is outside this workspace'; end if;
 
   if p_assignee_type='human' then
     target_member := coalesce(p_assigned_to,me.id);
@@ -364,19 +390,19 @@ begin
   end if;
 
   insert into sav_ai_crm.tasks(
-    workspace_id,lead_id,title,description,task_type,followup_type,status,priority,
+    workspace_id,lead_id,contact_id,title,description,task_type,followup_type,status,priority,
     due_at,reminder_at,assigned_to,assigned_agent_id,created_by,notes,completed_at,updated_at
   ) values (
-    me.workspace_id,p_lead_id,trim(p_title),nullif(trim(coalesce(p_description,'')),''),
+    me.workspace_id,p_lead_id,p_contact_id,trim(p_title),nullif(trim(coalesce(p_description,'')),''),
     'followup',coalesce(nullif(trim(p_followup_type),''),'general'),p_status,p_priority,
     p_due_at,p_reminder_at,target_member,p_assigned_agent_id,me.id,
     nullif(trim(coalesce(p_notes,'')),''),
     case when p_status='completed' then now() else null end,now()
   ) returning id into task_id;
 
-  insert into sav_ai_crm.activities(workspace_id,lead_id,task_id,actor_member_id,activity_type,title,description,metadata)
+  insert into sav_ai_crm.activities(workspace_id,lead_id,contact_id,task_id,actor_member_id,activity_type,title,description,metadata)
   values (
-    me.workspace_id,p_lead_id,task_id,me.id,'task_created','Task created',
+    me.workspace_id,p_lead_id,p_contact_id,task_id,me.id,'task_created','Task created',
     trim(p_title),
     jsonb_build_object('priority',p_priority,'assignee_type',p_assignee_type,'followup_type',p_followup_type)
   );
@@ -431,9 +457,17 @@ begin
   if p_assignee_type not in ('human','ai') then raise exception 'Invalid assignee type'; end if;
   if p_reminder_at is not null and p_due_at is not null and p_reminder_at > p_due_at then raise exception 'Reminder cannot be after due time'; end if;
 
+  if p_lead_id is not null and p_contact_id is not null then
+    raise exception 'A task can be linked to a lead or customer, not both';
+  end if;
+
   if p_lead_id is not null and not exists (
     select 1 from sav_ai_crm.leads where id=p_lead_id and workspace_id=me.workspace_id
   ) then raise exception 'Related lead is outside this workspace'; end if;
+
+  if p_contact_id is not null and not exists (
+    select 1 from sav_ai_crm.contacts where id=p_contact_id and workspace_id=me.workspace_id
+  ) then raise exception 'Related customer is outside this workspace'; end if;
 
   if p_assignee_type='human' then
     target_member := coalesce(p_assigned_to,me.id);
@@ -458,15 +492,15 @@ begin
       followup_type=coalesce(nullif(trim(p_followup_type),''),'general'),
       priority=p_priority,status=p_status,due_at=p_due_at,reminder_at=p_reminder_at,
       reminder_sent_at=case when reminder_at is distinct from p_reminder_at then null else reminder_sent_at end,
-      lead_id=p_lead_id,notes=nullif(trim(coalesce(p_notes,'')),''),
+      lead_id=p_lead_id,contact_id=p_contact_id,notes=nullif(trim(coalesce(p_notes,'')),''),
       assigned_to=target_member,assigned_agent_id=p_assigned_agent_id,
       completed_at=case when p_status='completed' then coalesce(completed_at,now()) else null end,
       updated_at=now()
   where id=p_task_id;
 
-  insert into sav_ai_crm.activities(workspace_id,lead_id,task_id,actor_member_id,activity_type,title,description,metadata)
+  insert into sav_ai_crm.activities(workspace_id,lead_id,contact_id,task_id,actor_member_id,activity_type,title,description,metadata)
   values (
-    me.workspace_id,p_lead_id,p_task_id,me.id,'task_updated','Task updated',trim(p_title),
+    me.workspace_id,p_lead_id,p_contact_id,p_task_id,me.id,'task_updated','Task updated',trim(p_title),
     jsonb_build_object('from_status',old_task.status,'to_status',p_status,'priority',p_priority,'assignee_type',p_assignee_type)
   );
 
@@ -497,8 +531,8 @@ begin
 
   update sav_ai_crm.tasks set status=p_status,completed_at=case when p_status='completed' then coalesce(completed_at,now()) else null end,updated_at=now() where id=p_task_id;
 
-  insert into sav_ai_crm.activities(workspace_id,lead_id,task_id,actor_member_id,activity_type,title,description,metadata)
-  values (me.workspace_id,t.lead_id,p_task_id,me.id,'task_status','Task status changed',p_status,jsonb_build_object('from',t.status,'to',p_status));
+  insert into sav_ai_crm.activities(workspace_id,lead_id,contact_id,task_id,actor_member_id,activity_type,title,description,metadata)
+  values (me.workspace_id,t.lead_id,t.contact_id,p_task_id,me.id,'task_status','Task status changed',p_status,jsonb_build_object('from',t.status,'to',p_status));
 end;
 $$;
 
@@ -613,9 +647,9 @@ begin
       updated_at=now()
   where id=p_task_id;
 
-  insert into sav_ai_crm.activities(workspace_id,lead_id,task_id,activity_type,title,description,metadata)
+  insert into sav_ai_crm.activities(workspace_id,lead_id,contact_id,task_id,activity_type,title,description,metadata)
   values (
-    t.workspace_id,t.lead_id,p_task_id,'agent_task_action','AI agent task action',
+    t.workspace_id,t.lead_id,t.contact_id,p_task_id,'agent_task_action','AI agent task action',
     nullif(trim(coalesce(p_note,'')),''),
     jsonb_build_object('agent_id',agent_id,'action',p_action,'from_status',t.status,'to_status',next_status)
   );
@@ -630,8 +664,8 @@ $$;
 revoke all on function public.sav_ai_crm_task_context() from public, anon;
 revoke all on function public.sav_ai_crm_list_tasks(text,text,text,text,text,text) from public, anon;
 revoke all on function public.sav_ai_crm_task_detail(uuid) from public, anon;
-revoke all on function public.sav_ai_crm_create_task(text,text,text,text,text,timestamptz,timestamptz,uuid,text,text,uuid,uuid) from public, anon;
-revoke all on function public.sav_ai_crm_update_task(uuid,text,text,text,text,text,timestamptz,timestamptz,uuid,text,text,uuid,uuid) from public, anon;
+revoke all on function public.sav_ai_crm_create_task(text,text,text,text,text,timestamptz,timestamptz,uuid,uuid,text,text,uuid,uuid) from public, anon;
+revoke all on function public.sav_ai_crm_update_task(uuid,text,text,text,text,text,timestamptz,timestamptz,uuid,uuid,text,text,uuid,uuid) from public, anon;
 revoke all on function public.sav_ai_crm_set_task_status(uuid,text) from public, anon;
 revoke all on function public.sav_ai_crm_archive_task(uuid) from public, anon;
 revoke all on function public.sav_ai_crm_delete_task(uuid) from public, anon;
@@ -641,8 +675,8 @@ revoke all on function public.sav_ai_crm_agent_task_action(uuid,text,text) from 
 grant execute on function public.sav_ai_crm_task_context() to authenticated;
 grant execute on function public.sav_ai_crm_list_tasks(text,text,text,text,text,text) to authenticated;
 grant execute on function public.sav_ai_crm_task_detail(uuid) to authenticated;
-grant execute on function public.sav_ai_crm_create_task(text,text,text,text,text,timestamptz,timestamptz,uuid,text,text,uuid,uuid) to authenticated;
-grant execute on function public.sav_ai_crm_update_task(uuid,text,text,text,text,text,timestamptz,timestamptz,uuid,text,text,uuid,uuid) to authenticated;
+grant execute on function public.sav_ai_crm_create_task(text,text,text,text,text,timestamptz,timestamptz,uuid,uuid,text,text,uuid,uuid) to authenticated;
+grant execute on function public.sav_ai_crm_update_task(uuid,text,text,text,text,text,timestamptz,timestamptz,uuid,uuid,text,text,uuid,uuid) to authenticated;
 grant execute on function public.sav_ai_crm_set_task_status(uuid,text) to authenticated;
 grant execute on function public.sav_ai_crm_archive_task(uuid) to authenticated;
 grant execute on function public.sav_ai_crm_delete_task(uuid) to authenticated;
