@@ -32,6 +32,7 @@ export type InboxMessage={
   channel:InboxChannel;
   direction:MessageDirection;
   sender:string|null;
+  sender_name:string|null;
   recipient:string|null;
   message_type:MessageType;
   body:string|null;
