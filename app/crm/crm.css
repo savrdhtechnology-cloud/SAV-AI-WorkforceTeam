@@ -291,3 +291,9 @@ radial-gradient(circle at 70% 70%,rgba(73,227,255,.15),transparent 26%),#071523}
 
 @media(max-width:1100px){.agent-layout{grid-template-columns:1fr}.agent-list{display:grid;grid-template-columns:repeat(2,1fr)}.agent-list-head{grid-column:1/-1}.agent-overview-grid{grid-template-columns:repeat(2,1fr)}.agent-cap-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:700px){.agent-metrics{grid-template-columns:repeat(2,1fr)}.agent-list{grid-template-columns:1fr}.agent-detail-head{flex-direction:column}.agent-head-actions{justify-content:flex-start}.agent-overview-grid,.agent-cap-grid,.agent-channel-grid{grid-template-columns:1fr}.agent-route-page{padding:10px}}
+
+.agent-approval-queue{margin-top:12px;border:1px solid #6a4c2e;background:rgba(112,78,31,.10);border-radius:11px;padding:11px;display:grid;gap:8px}
+.agent-approval-row{display:flex;justify-content:space-between;gap:10px;align-items:center;border-top:1px solid #3b3020;padding-top:8px}
+.agent-approval-row b{display:block;font-size:8.5px}.agent-approval-row span{display:block;font-size:7px;color:#b99b6f;margin-top:3px}
+.agent-approval-row>div:last-child{display:flex;gap:6px}.agent-approval-row button{border:1px solid #5c4a33;background:#0d2032;color:#d9c9ad;border-radius:8px;padding:7px 9px;font-size:7.5px;cursor:pointer}
+.agent-approval-row button.primary{border:0;background:linear-gradient(90deg,var(--crm-cyan),var(--crm-blue));color:#04111d}
