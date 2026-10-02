@@ -318,6 +318,7 @@ export default function Home() {
           <a href="#agents">AI Agents</a>
           <a href="#integrations">Integrations</a>
           <a href="#security">Security</a>
+          <a href="/crm">CRM Login</a>
         </nav>
         <motion.a className="header-cta" href="#contact" whileHover={{ y: -2, scale: 1.03 }} whileTap={{ scale: 0.97 }}>
           Request Demo <ArrowRight size={15} />
