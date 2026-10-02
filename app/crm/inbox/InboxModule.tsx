@@ -8,7 +8,7 @@ import {
 import {
   addInternalNote,assignConversation,closeConversation,createConversation,createInboxFollowup,createInboxTask,
   draftReply,escalateConversation,getConversation,getInboxContext,listConversations,markMessageRead,reopenConversation,
-  retryMessage,sendMessage,updateConversation
+  retryMessage,sendMessage,updateConversation,listChannelAccounts,upsertChannelAccount
 } from "./inbox-service";
 import { ConversationDetail,ConversationRecord,InboxContext,InboxMessage } from "./inbox-types";
 
@@ -30,6 +30,8 @@ export default function InboxModule(){
   const [selectedAgent,setSelectedAgent]=useState("");
   const [newOpen,setNewOpen]=useState(false);
   const [taskOpen,setTaskOpen]=useState<"task"|"followup"|null>(null);
+  const [channelsOpen,setChannelsOpen]=useState(false);
+  const [pendingAgentAction,setPendingAgentAction]=useState<string|null>(null);
 
   async function loadList(preferred?:string){
     setLoading(true);setError("");
@@ -89,10 +91,11 @@ export default function InboxModule(){
         recipient:latestInbound?.sender||null,agentId:selectedAgent||null
       });
       if(result?.approval_required){
+        setPendingAgentAction(String(result.agent_action_id||"")||null);
         setNotice("AI send request created and is waiting for human approval.");
       }else{
         setNotice(`Message status: ${result.delivery_status||"processed"}`);
-        setComposer("");
+        setComposer("");setPendingAgentAction(null);
       }
       await loadDetail(selected,false);await loadList(selected);
     }catch(e){setError(e instanceof Error?e.message:"Message send failed.");}
@@ -128,7 +131,7 @@ export default function InboxModule(){
         <select value={assignment} onChange={e=>setAssignment(e.target.value)}><option value="">All assignment</option><option value="mine">Mine</option><option value="assigned">Assigned</option><option value="unassigned">Unassigned</option><option value="human">Human</option><option value="ai">AI</option></select>
         <button className={unreadOnly?"active":""} onClick={()=>setUnreadOnly(v=>!v)}><Filter size={11}/>Unread</button>
         <button onClick={()=>loadList()}><RefreshCw size={11}/>Refresh</button>
-        <button className="task-new-btn" onClick={()=>setNewOpen(true)}><Plus size={11}/>New</button>
+        <button className="task-new-btn" onClick={()=>setNewOpen(true)}><Plus size={11}/>New</button>{context?.permissions.manage_channels&&<button onClick={()=>setChannelsOpen(true)}>Channels</button>}
       </div>
     </div>
 
@@ -156,7 +159,7 @@ export default function InboxModule(){
             <div className="inbox-compose-controls">
               <select value={detail.conversation.channel} disabled><option>{detail.conversation.channel}</option></select>
               <select value={selectedAgent} onChange={e=>setSelectedAgent(e.target.value)}><option value="">Human reply</option>{(context?.agents||[]).filter(a=>a.status==="active"&&a.channels?.includes(detail.conversation.channel)).map(a=><option key={a.id} value={a.id}>{a.display_name||a.name}</option>)}</select>
-              <button type="button" onClick={generateDraft} disabled={!selectedAgent||busy}><Bot size={11}/>AI Draft</button>
+              <button type="button" onClick={generateDraft} disabled={!selectedAgent||busy}><Bot size={11}/>AI Draft</button>{pendingAgentAction&&<button type="button" onClick={async()=>{setBusy(true);setError("");try{const r=await sendMessage({agentActionId:pendingAgentAction});setNotice(`Approved AI message status: ${r.delivery_status||"processed"}`);setPendingAgentAction(null);setComposer("");if(selected)await loadDetail(selected,false);}catch(e){setError(e instanceof Error?e.message:"Approved AI send failed.");}finally{setBusy(false);}}}>Send Approved AI Reply</button>}
             </div>
             <textarea value={composer} onChange={e=>setComposer(e.target.value)} placeholder={detail.conversation.status==="closed"?"Reopen conversation before replying...":"Write a message. External delivery is only confirmed by the configured provider."} disabled={detail.conversation.status==="closed"}/>
             <div className="inbox-compose-foot"><span>{selectedAgent?"AI send uses approval boundary":"Sending as authenticated CRM user"}</span><button className="primary" disabled={busy||!composer.trim()||detail.conversation.status==="closed"}><Send size={12}/>{busy?"Processing":"Send"}</button></div>
@@ -168,7 +171,7 @@ export default function InboxModule(){
 
     {newOpen&&<NewConversationModal context={context} onClose={()=>setNewOpen(false)} onCreated={async id=>{setNewOpen(false);await loadList(id);}}/>}
     {taskOpen&&detail&&<TaskModal mode={taskOpen} conversationId={detail.conversation.id} context={context} onClose={()=>setTaskOpen(null)} onCreated={async()=>{setTaskOpen(null);setNotice(taskOpen==="task"?"Task created.":"Follow-up created.");await loadDetail(detail.conversation.id,false);}}/>}
-  </div>;
+    {channelsOpen&&<ChannelManagerModal onClose={()=>setChannelsOpen(false)}/>}\n  </div>;
 }
 
 function ConversationHeader({detail,context,busy,onReload,onAction,onTask,onFollowup}:any){
@@ -231,6 +234,28 @@ function TaskModal({mode,conversationId,context,onClose,onCreated}:any){
  const [error,setError]=useState("");const [saving,setSaving]=useState(false);
  async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();const fd=new FormData(e.currentTarget);setSaving(true);const payload={conversationId,title:String(fd.get("title")||""),description:String(fd.get("description")||""),priority:String(fd.get("priority")||"medium"),dueAt:String(fd.get("dueAt")||"")||null,followupType:String(fd.get("followupType")||"general"),assigneeType:"human",assignedTo:String(fd.get("assignedTo")||"")||null};try{if(mode==="task")await createInboxTask(payload);else await createInboxFollowup(payload);onCreated();}catch(e){setError(e instanceof Error?e.message:"Create failed.");}finally{setSaving(false);}}
  return <div className="crm-modal-wrap"><form className="crm-modal" onSubmit={submit}><div className="crm-modal-head"><h3>{mode==="task"?"Create Task":"Create Follow-up"}</h3><button type="button" onClick={onClose}><X size={14}/></button></div><div className="crm-form"><label className="full">Title<input name="title" required minLength={3}/></label><label className="full">Description<textarea name="description"/></label>{mode==="followup"&&<label>Type<select name="followupType">{["general","call","whatsapp","email","meeting","document","payment","proposal","site_visit","support"].map(x=><option key={x}>{x}</option>)}</select></label>}<label>Priority<select name="priority">{["medium","high","urgent","low"].map(x=><option key={x}>{x}</option>)}</select></label><label>Due<input name="dueAt" type="datetime-local"/></label><label>Assign human<select name="assignedTo"><option value="">Me</option>{(context?.members||[]).map((m:any)=><option key={m.id} value={m.id}>{m.full_name||m.email}</option>)}</select></label>{error&&<div className="task-error full">{error}</div>}<div className="crm-form-actions"><button type="button" onClick={onClose}>Cancel</button><button className="primary" disabled={saving}>{saving?"Creating...":"Create"}</button></div></div></form></div>;
+}
+
+function ChannelManagerModal({onClose}:{onClose:()=>void}){
+ const [accounts,setAccounts]=useState<any[]>([]),[error,setError]=useState(""),[saving,setSaving]=useState(false);
+ useEffect(()=>{listChannelAccounts().then(r=>setAccounts(r.accounts||[])).catch(e=>setError(e instanceof Error?e.message:"Could not load channels."));},[]);
+ async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();const fd=new FormData(e.currentTarget);setSaving(true);setError("");try{await upsertChannelAccount({
+   channel:String(fd.get("channel")),provider:String(fd.get("provider")),displayName:String(fd.get("displayName")),
+   externalAccountId:String(fd.get("externalAccountId")||"")||null,senderIdentity:String(fd.get("senderIdentity")||"")||null,
+   status:String(fd.get("status")||"disconnected"),secretRef:String(fd.get("secretRef")||"")||null,publicConfig:{}
+ });const r=await listChannelAccounts();setAccounts(r.accounts||[]);e.currentTarget.reset();}catch(e){setError(e instanceof Error?e.message:"Channel metadata save failed.");}finally{setSaving(false);}}
+ return <div className="crm-modal-wrap"><form className="crm-modal" onSubmit={submit}><div className="crm-modal-head"><h3>Channel Accounts</h3><button type="button" onClick={onClose}><X size={14}/></button></div><div className="crm-form">
+   <label>Channel<select name="channel">{["whatsapp","email","sms","voice","webchat"].map(x=><option key={x}>{x}</option>)}</select></label>
+   <label>Provider<input name="provider" required placeholder="Provider adapter name"/></label>
+   <label className="full">Display name<input name="displayName" required/></label>
+   <label>External account ID<input name="externalAccountId"/></label><label>Sender identity<input name="senderIdentity"/></label>
+   <label>Status<select name="status"><option>disconnected</option><option>connected</option><option>disabled</option><option>error</option></select></label>
+   <label>Server secret reference<input name="secretRef" placeholder="e.g. WHATSAPP_PRIMARY_SECRET"/></label>
+   <div className="full"><small>Raw API keys, tokens and credentials are never accepted here. Only a server-side secret reference may be stored.</small></div>
+   {error&&<div className="task-error full">{error}</div>}
+   <div className="full channel-manager-list">{accounts.map(a=><div className="channel-manager-row" key={a.id}><div><b>{a.display_name}</b><span>{a.channel} · {a.provider} · {a.status}</span></div><span>{a.sender_identity||"No sender"}{a.has_secret_ref?" · secret ref set":""}</span></div>)}</div>
+   <div className="crm-form-actions"><button type="button" onClick={onClose}>Close</button><button className="primary" disabled={saving}>{saving?"Saving...":"Save metadata"}</button></div>
+ </div></form></div>;
 }
 
 function ChannelBadge({channel}:{channel:string}){return <span className={"inbox-channel "+channel}>{channel}</span>}
