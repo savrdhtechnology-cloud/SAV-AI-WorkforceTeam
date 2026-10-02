@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { crmSupabase } from "./supabase-client";
 import TasksView from "./tasks/TasksView";
+import AgentsModule from "./agents/AgentsModule";
 import "./crm.css";
 
 type View = "dashboard" | "leads" | "pipeline" | "agents" | "workflows" | "inbox" | "tasks" | "integrations" | "settings";
@@ -277,7 +278,7 @@ export default function CRMPage() {
                 />
               )}
               {view === "pipeline" && <PipelineView pipeline={pipeline} />}
-              {view === "agents" && <AgentsView agents={agents} />}
+              {view === "agents" && <AgentsModule />}
               {view === "workflows" && <SimpleList title="Workflows" icon={Workflow} items={workflows} empty="No workflows yet. Create workflow definitions once your automation rules are ready." />}
               {view === "inbox" && <SimpleList title="Conversations" icon={MessageSquareMore} items={conversations} empty="No conversations yet. Connect WhatsApp, email, SMS, voice or web chat to start receiving threads." />}
               {view === "tasks" && <TasksView onChanged={refreshAll} />}
@@ -399,14 +400,6 @@ function PipelineView({ pipeline }: any) {
       {col.items.map((l: Lead) => <motion.div className="pipeline-card" key={l.id} whileHover={{ y: -3, scale: 1.01 }}><strong>{l.title}</strong><span>{l.company || l.source}</span><em>{formatMoney(l.value || 0)}</em></motion.div>)}
     </div>)}
   </div>;
-}
-
-function AgentsView({ agents }: any) {
-  return agents.length ? <div className="crm-agent-grid">{agents.map((a: any) => <motion.div className="crm-card crm-agent-card" key={a.id} whileHover={{ y: -5 }}>
-    <div className="crm-agent-top"><div className="crm-agent-icon"><Bot size={18} /></div><span className="crm-badge"><i /> {a.status}</span></div>
-    <h3>{a.name}</h3><p>{a.description}</p>
-    <div className="crm-agent-meta"><span>{a.role_name}</span><span>{a.autonomy_level}</span>{(a.channels || []).map((c: string) => <span key={c}>{c}</span>)}</div>
-  </motion.div>)}</div> : <EmptyState icon={Bot} title="No AI agents" text="Agents will appear after workspace initialization." />;
 }
 
 function IntegrationsView({ integrations }: any) {
