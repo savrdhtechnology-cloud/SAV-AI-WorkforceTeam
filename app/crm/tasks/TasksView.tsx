@@ -117,6 +117,7 @@ export default function TasksView({ onChanged }: Props) {
       dueAt: toLocalInput(task.due_at),
       reminderAt: toLocalInput(task.reminder_at),
       leadId: task.lead_id || "",
+      contactId: task.contact_id || "",
       notes: task.notes || "",
       assigneeType: task.assignee_type,
       assignedTo: task.assigned_to || "",
@@ -316,9 +317,16 @@ export default function TasksView({ onChanged }: Props) {
               <label>Status<select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value as TaskStatus })}>
                 {statuses.map((x) => <option key={x} value={x}>{x.replace("_", " ")}</option>)}
               </select></label>
-              <label>Related lead/customer<select value={draft.leadId} onChange={(e) => setDraft({ ...draft, leadId: e.target.value })}>
-                <option value="">Not linked</option>
+              <label>Related lead<select value={draft.leadId} onChange={(e) => setDraft({ ...draft, leadId: e.target.value, contactId: e.target.value ? "" : draft.contactId })}>
+                <option value="">Not linked to lead</option>
                 {context.leads.map((l) => <option key={l.id} value={l.id}>{l.title}{l.company ? ` — ${l.company}` : ""}</option>)}
+              </select></label>
+              <label>Related customer<select value={draft.contactId} onChange={(e) => setDraft({ ...draft, contactId: e.target.value, leadId: e.target.value ? "" : draft.leadId })}>
+                <option value="">Not linked to customer</option>
+                {context.contacts.map((x) => {
+                  const name = [x.first_name, x.last_name].filter(Boolean).join(" ") || x.company || x.email || x.phone || "Customer";
+                  return <option key={x.id} value={x.id}>{name}{x.company && name !== x.company ? ` — ${x.company}` : ""}</option>;
+                })}
               </select></label>
               <label>Due date/time<input type="datetime-local" value={draft.dueAt} onChange={(e) => setDraft({ ...draft, dueAt: e.target.value })} /></label>
               <label>Reminder<input type="datetime-local" value={draft.reminderAt} onChange={(e) => setDraft({ ...draft, reminderAt: e.target.value })} /></label>
