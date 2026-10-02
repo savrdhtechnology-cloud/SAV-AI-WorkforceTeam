@@ -113,7 +113,7 @@ function CommandPreview() {
         </aside>
 
         <div className="console-main">
-          <div className="console-label">AI COMMAND CENTER</div>
+          <div className="console-label"><span className="scan-dot" /> AI COMMAND CENTER</div>
           <div className="command-box">
             <span className="prompt-label">Tell SAV AI what you want to do...</span>
             <div className="typed-line">
@@ -124,7 +124,7 @@ function CommandPreview() {
             <button>EXECUTE <Zap size={14} /></button>
           </div>
 
-          <div className="response-heading">AI RESPONSE</div>
+          <div className="response-heading"><span className="scan-dot" /> AI RESPONSE</div>
           <div className="response-box">
             <div className="response-icon"><Sparkles size={18} /></div>
             <div>
@@ -136,7 +136,7 @@ function CommandPreview() {
             </div>
           </div>
 
-          <div className="agent-strip">
+          <div className="agent-strip live-strip">
             <div><span className="live-dot" /> SAV-Sales</div>
             <div><RefreshCw size={13} /> Workflow running</div>
             <div><Activity size={13} /> Live activity</div>
@@ -151,6 +151,33 @@ export default function Home() {
   return (
     <main>
       <RevealController />
+      <div className="ambient-stage" aria-hidden="true">
+        <span className="ambient-orb orb-a" />
+        <span className="ambient-orb orb-b" />
+        <span className="ambient-orb orb-c" />
+        <span className="ambient-line line-a" />
+        <span className="ambient-line line-b" />
+        <div className="particle-field">
+          <i className="particle p-1" />
+          <i className="particle p-2" />
+          <i className="particle p-3" />
+          <i className="particle p-4" />
+          <i className="particle p-5" />
+          <i className="particle p-6" />
+          <i className="particle p-7" />
+          <i className="particle p-8" />
+          <i className="particle p-9" />
+          <i className="particle p-10" />
+          <i className="particle p-11" />
+          <i className="particle p-12" />
+          <i className="particle p-13" />
+          <i className="particle p-14" />
+          <i className="particle p-15" />
+          <i className="particle p-16" />
+          <i className="particle p-17" />
+          <i className="particle p-18" />
+        </div>
+      </div>
       <header className="site-header">
         <a className="logo" href="#top" aria-label="SAVRDH Intelligence Workforce">
           <BrandMark />
@@ -198,8 +225,10 @@ export default function Home() {
 
       <section className="logo-band" aria-label="Supported channels" data-reveal>
         <span className="band-label">ONE WORKFORCE. EVERY CHANNEL.</span>
-        <div className="channel-row">
-          {channels.map((channel) => <span key={channel}>{channel}</span>)}
+        <div className="channel-marquee">
+          <div className="channel-track">
+            {[...channels, ...channels].map((channel, i) => <span key={channel + i}>{channel}</span>)}
+          </div>
         </div>
       </section>
 
