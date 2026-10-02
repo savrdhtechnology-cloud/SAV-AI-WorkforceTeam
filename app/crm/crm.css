@@ -244,3 +244,50 @@ radial-gradient(circle at 70% 70%,rgba(73,227,255,.15),transparent 26%),#071523}
   .task-assignee{grid-column:1}
   .task-detail-grid{grid-template-columns:1fr}
 }
+
+
+/* Phase 2 — AI Agents */
+.agent-module{display:grid;gap:14px}
+.agent-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.agent-metric{padding:12px 14px}
+.agent-metric span{display:block;font-size:8px;color:var(--crm-muted)}
+.agent-metric strong{display:block;font-size:19px;margin-top:5px}
+.agent-layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:12px;align-items:start}
+.agent-list,.agent-detail{border:1px solid #173754;background:#081725;border-radius:12px;overflow:hidden}
+.agent-list-head{display:flex;align-items:center;gap:7px;padding:12px;border-bottom:1px solid #173754;font-size:9px;color:#a9c4d9}
+.agent-list>button{width:100%;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:9px;text-align:left;border:0;border-bottom:1px solid #112b40;background:transparent;color:#c6d8e5;padding:11px;cursor:pointer}
+.agent-list>button:hover,.agent-list>button.active{background:rgba(73,227,255,.06)}
+.agent-avatar{width:30px;height:30px;border:1px solid #29516e;background:#0d2235;color:var(--crm-cyan);border-radius:9px;display:grid;place-items:center}
+.agent-list b{display:block;font-size:9px}
+.agent-list small{display:block;font-size:7px;color:#6f8da6;margin-top:3px}
+.agent-status{font-style:normal;font-size:7px;text-transform:uppercase;border:1px solid #31516a;padding:4px 6px;border-radius:999px;color:#8ca9bf}
+.agent-status.active{border-color:#2b655c;color:#76e0ba}.agent-status.paused{border-color:#66542f;color:#f4c36c}.agent-status.disabled,.agent-status.error{border-color:#663849;color:#ff9bb0}
+.agent-detail{min-height:560px}
+.agent-detail-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:16px;border-bottom:1px solid #173754}
+.agent-detail-head small{font-size:7px;color:var(--crm-cyan);text-transform:uppercase;letter-spacing:.08em}
+.agent-detail-head h2{font-size:17px;margin:5px 0 2px}
+.agent-detail-head p{font-size:8px;color:#7896ae;margin:0}
+.agent-head-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.agent-head-actions button,.agent-head-actions a{border:1px solid #28506d;background:#0d2032;color:#b7cbda;border-radius:8px;padding:8px 9px;font-size:8px;font-weight:800;display:flex;align-items:center;gap:5px;text-decoration:none;cursor:pointer}
+.agent-head-actions .primary{background:linear-gradient(90deg,var(--crm-cyan),var(--crm-blue));border:0;color:#04111d}
+.agent-tabs{display:flex;gap:5px;overflow-x:auto;padding:10px 12px;border-bottom:1px solid #173754}
+.agent-tabs button{white-space:nowrap;border:1px solid #274a67;background:#091a2a;color:#7998b0;border-radius:999px;padding:7px 10px;font-size:7.5px;cursor:pointer}
+.agent-tabs button.active{border-color:var(--crm-cyan);color:var(--crm-cyan);background:rgba(73,227,255,.07)}
+.agent-tab-body{padding:14px}
+.agent-overview-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.agent-overview-grid>.crm-card{padding:12px}
+.agent-overview-grid span{font-size:7px;color:#6d8ba5;display:block}.agent-overview-grid strong{font-size:10px;display:block;margin-top:4px;text-transform:capitalize}
+.agent-wide{grid-column:1/-1;border:1px solid #173754;background:#0a1b2b;border-radius:10px;padding:12px}.agent-wide b{font-size:8px;color:#7494ad}.agent-wide p{font-size:9px;color:#abc0d1;line-height:1.6}
+.agent-cap-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.agent-cap-grid .crm-card{padding:11px}.agent-cap-grid b{font-size:8.5px;display:block}.agent-cap-grid span,.agent-cap-grid em{font-size:7px;color:#718fa7;display:block;margin-top:5px;font-style:normal}
+.agent-channel-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.agent-channel-grid label{border:1px solid #264964;background:#0a1b2b;border-radius:9px;padding:10px;font-size:8px;text-transform:capitalize;display:flex;gap:7px;align-items:center}
+.agent-json{display:block;font-size:8px;color:#7895ad}.agent-json textarea{width:100%;min-height:220px;margin-top:7px;border:1px solid #214663;background:#071725;color:#dcebf5;border-radius:10px;padding:11px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+.agent-test-console{margin:0 14px 14px;border:1px solid #214764;background:linear-gradient(180deg,#0a1c2d,#081623);border-radius:12px;padding:13px;display:grid;gap:9px}
+.agent-console-head{display:flex;gap:8px;align-items:center}.agent-console-head b{font-size:9px;display:block}.agent-console-head span{font-size:7px;color:#7190a8;display:block;margin-top:2px}
+.agent-test-console label{font-size:7px;color:#7996ad}.agent-test-console select,.agent-test-console textarea{width:100%;margin-top:5px;border:1px solid #214663;background:#071725;color:#dcebf5;border-radius:9px;padding:9px;font-size:9px}.agent-test-console textarea{min-height:75px;resize:vertical}
+.agent-console-result{margin:0;white-space:pre-wrap;overflow:auto;max-height:260px;border:1px solid #214663;background:#06131f;color:#9ed9e8;border-radius:9px;padding:10px;font-size:8px}
+.agent-success{border:1px solid #2f6257;background:rgba(39,112,91,.12);color:#8ce0c2;border-radius:9px;padding:10px;font-size:8px}
+.agent-loading{min-height:300px;display:grid;place-items:center;color:#7695ad;font-size:9px}
+.agent-route-page{min-height:100vh;background:#06111c;color:#eaf5fb;padding:20px}.agent-route-head{display:flex;justify-content:space-between;align-items:center;margin:0 auto 14px;max-width:1500px}.agent-route-head small{font-size:7px;color:var(--crm-cyan);letter-spacing:.12em}.agent-route-head h1{font-size:20px;margin:4px 0}.agent-route-head>a{border:1px solid #28506d;background:#0d2032;color:#b7cbda;border-radius:8px;padding:8px 10px;text-decoration:none;font-size:8px}.agent-route-page>.agent-module{max-width:1500px;margin:0 auto}
+
+@media(max-width:1100px){.agent-layout{grid-template-columns:1fr}.agent-list{display:grid;grid-template-columns:repeat(2,1fr)}.agent-list-head{grid-column:1/-1}.agent-overview-grid{grid-template-columns:repeat(2,1fr)}.agent-cap-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.agent-metrics{grid-template-columns:repeat(2,1fr)}.agent-list{grid-template-columns:1fr}.agent-detail-head{flex-direction:column}.agent-head-actions{justify-content:flex-start}.agent-overview-grid,.agent-cap-grid,.agent-channel-grid{grid-template-columns:1fr}.agent-route-page{padding:10px}}
