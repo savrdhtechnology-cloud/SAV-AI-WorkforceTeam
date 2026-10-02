@@ -11,6 +11,7 @@ The live CRM currently points to the **Savrdh Technology** Supabase project and 
 `migrations/20261002_tasks_followup_module.sql` extends the existing Tasks foundation with:
 
 - follow-up type, notes, reminders, archive and updated timestamps
+- related lead **or customer/contact** linkage with workspace validation
 - human and AI-agent assignment
 - task activity linkage and history
 - overdue/today/upcoming/completed queries
@@ -26,3 +27,15 @@ The live CRM currently points to the **Savrdh Technology** Supabase project and 
 This migration is **prepared but intentionally not applied to production**. Apply only after the feature branch passes build/type verification and hosted end-to-end testing.
 
 The current production database must not be modified merely to make the UI appear functional. The UI should surface RPC errors until the migration is explicitly approved and applied.
+
+## Verification commands
+
+After checking out this branch locally or in CI:
+
+```bash
+npm test
+npm run typecheck
+npm run build
+```
+
+The task contract tests live in `tests/tasks-contract.test.mjs` and validate the UI/service/RPC security boundary without requiring production database writes.
