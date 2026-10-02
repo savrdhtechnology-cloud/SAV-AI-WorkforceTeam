@@ -21,6 +21,7 @@ export async function POST(req:NextRequest,{params}:{params:Promise<{channel:str
   }
   const normalized=await adapter.normalizeInboundMessage(envelope);
   if("error" in normalized)return jsonError(normalized.message,422,normalized.error);
+  try{await adapter.receiveMessage(normalized);}catch{return jsonError("Configured provider rejected inbound message",502,"CHANNEL_PROVIDER_ERROR");}
 
   const admin=serverAdminSupabase();
   if(!admin)return jsonError("Server webhook persistence is not configured",503,"WEBHOOK_SERVER_NOT_CONFIGURED");
