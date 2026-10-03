@@ -299,7 +299,7 @@ begin
   'member',jsonb_build_object('id',me.id,'role',me.role,'full_name',me.full_name,'email',me.email),
   'members',coalesce((select jsonb_agg(jsonb_build_object('id',m.id,'full_name',m.full_name,'email',m.email,'role',m.role) order by coalesce(m.full_name,m.email))
     from sav_ai_crm.members m where m.workspace_id=me.workspace_id and m.is_active),'[]'::jsonb),
-  'agents',coalesce((select jsonb_agg(jsonb_build_object('id',a.id,'display_name',a.display_name,'name',a.name,'status',a.status,'channels',a.channels,'capabilities',a.capabilities) order by a.display_name)
+  'agents',coalesce((select jsonb_agg(jsonb_build_object('id',a.id,'display_name',a.display_name,'name',a.name,'status',a.status,'channels',a.channels,'capabilities',coalesce((select jsonb_agg(c.capability order by c.capability) from sav_ai_crm.ai_agent_capabilities c where c.agent_id=a.id and c.is_enabled),'[]'::jsonb)) order by a.display_name)
     from sav_ai_crm.ai_agents a where a.workspace_id=me.workspace_id),'[]'::jsonb),
   'leads',coalesce((select jsonb_agg(jsonb_build_object('id',l.id,'title',l.title,'company',l.company) order by l.updated_at desc) from sav_ai_crm.leads l where l.workspace_id=me.workspace_id limit 500),'[]'::jsonb),
   'contacts',coalesce((select jsonb_agg(jsonb_build_object('id',c.id,'first_name',c.first_name,'last_name',c.last_name,'company',c.company,'email',c.email,'phone',c.phone) order by c.updated_at desc) from sav_ai_crm.contacts c where c.workspace_id=me.workspace_id limit 500),'[]'::jsonb),
@@ -640,7 +640,6 @@ begin
  values(me.workspace_id,auth.uid(),'inbox.ai.message.queued','message',mid,jsonb_build_object('agent_id',agent.id,'agent_action_id',act.id));
  return jsonb_build_object('message_id',mid,'agent_action_id',act.id,'already_queued',false);
 end $;
-
 create or replace function public.sav_ai_crm_finalize_agent_message_action(p_action_id uuid,p_message_id uuid,p_ok boolean,p_error text default null)
 returns void language plpgsql security definer
 set search_path=public,sav_ai_crm
@@ -659,7 +658,6 @@ begin
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
  values(me.workspace_id,auth.uid(),case when p_ok then 'inbox.ai.message.completed' else 'inbox.ai.message.failed' end,'ai_agent_action',act.id,jsonb_build_object('message_id',m.id,'status',m.delivery_status));
 end $;
-
 create or replace function public.sav_ai_crm_mark_message_sending(p_message_id uuid)
 returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
@@ -951,7 +949,6 @@ begin
     ) x),'[]'::jsonb)
  );
 end $;
-
 -- ---------------------------------------------------------------------------
 -- Phase 3 workflow event extension; same engine, no second workflow system
 -- ---------------------------------------------------------------------------
@@ -993,7 +990,6 @@ begin
  values(wid,auth.uid(),'workflow.create','workflow',new_workflow_id,jsonb_build_object('trigger',p_trigger_type,'version',1));
  return new_workflow_id;
 end $;
-
 create or replace function public.sav_ai_crm_update_workflow(
  p_workflow_id uuid,p_name text,p_description text,p_trigger_type text,p_graph jsonb
 ) returns integer language plpgsql security definer
@@ -1022,7 +1018,6 @@ begin
  values(me.workspace_id,auth.uid(),'workflow.update','workflow',w.id,jsonb_build_object('version',next_version));
  return next_version;
 end $;
-
 create or replace function public.sav_ai_crm_dispatch_workflow_event(p_event text,p_context jsonb,p_event_key text)
 returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
@@ -1067,7 +1062,6 @@ begin
    'created_at',a.created_at,'updated_at',a.updated_at
  ) order by a.channel,a.display_name) from sav_ai_crm.channel_accounts a where a.workspace_id=me.workspace_id),'[]'::jsonb);
 end $;
-
 create or replace function public.sav_ai_crm_upsert_channel_account(
  p_account_id uuid,p_channel text,p_provider text,p_display_name text,p_external_account_id text default null,
  p_sender_identity text default null,p_status text default 'disconnected',p_public_config jsonb default '{}'::jsonb,p_secret_ref text default null
@@ -1097,7 +1091,6 @@ begin
  values(me.workspace_id,auth.uid(),'inbox.channel.configure','channel_account',aid,jsonb_build_object('channel',p_channel,'provider',p_provider,'status',p_status));
  return aid;
 end $;
-
 create or replace function sav_ai_crm.dispatch_workflow_event_system(p_workspace_id uuid,p_event text,p_context jsonb,p_event_key text)
 returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
@@ -1134,7 +1127,6 @@ begin
  end loop;
  return results;
 end $;
-
 revoke all on function sav_ai_crm.dispatch_workflow_event_system(uuid,text,jsonb,text) from public,anon,authenticated;
 grant execute on function sav_ai_crm.dispatch_workflow_event_system(uuid,text,jsonb,text) to service_role;
 
