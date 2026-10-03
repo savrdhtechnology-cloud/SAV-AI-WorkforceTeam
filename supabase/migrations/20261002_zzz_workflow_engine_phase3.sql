@@ -511,7 +511,6 @@ begin
  end loop;
  return results;
 end $;
-
 -- Test plan ------------------------------------------------------------------
 create or replace function public.sav_ai_crm_test_workflow(p_workflow_id uuid,p_context jsonb)
 returns jsonb language plpgsql stable security definer
