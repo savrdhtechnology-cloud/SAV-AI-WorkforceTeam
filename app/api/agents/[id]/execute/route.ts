@@ -31,7 +31,22 @@ export async function POST(req:NextRequest,{params}:{params:Promise<{id:string}>
    return jsonError(createError.message,403,"EXECUTION_CREATE_FAILED");
  }
 
- const result=await getAIProvider().planAction({command:body.command.trim(),context:body.context||{}});
+ let providerContext:Record<string,unknown>={...(body.context||{})};
+ const requestedLeadId=typeof providerContext.lead_id==="string"?providerContext.lead_id:null;
+ if(requestedLeadId){
+   const {data:leadRows,error:leadError}=await supabase.rpc("sav_ai_crm_list_leads",{p_status:null,p_search:null});
+   if(leadError){
+     if(isDatabaseNotReady(leadError)) return databaseNotReady(leadError.message);
+     return jsonError(leadError.message,500,"LEAD_CONTEXT_LOAD_FAILED");
+   }
+   const lead=Array.isArray(leadRows)?leadRows.find((item:unknown)=>{
+     if(!item||typeof item!=="object") return false;
+     return (item as {id?:unknown}).id===requestedLeadId;
+   }):null;
+   if(lead) providerContext={...providerContext,lead};
+ }
+
+ const result=await getAIProvider().planAction({command:body.command.trim(),context:providerContext});
  if(!result.ok){
    const {error:failError}=await supabase.rpc("sav_ai_crm_fail_agent_execution",{
      p_execution_id:executionId,p_error:result.error,p_output:{message:result.message}
