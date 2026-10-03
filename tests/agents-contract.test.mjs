@@ -7,6 +7,8 @@ const types=readFileSync(new URL("../app/crm/agents/agent-types.ts",import.meta.
 const provider=readFileSync(new URL("../lib/ai/provider.ts",import.meta.url),"utf8");
 const moduleUi=readFileSync(new URL("../app/crm/agents/AgentsModule.tsx",import.meta.url),"utf8");
 const actionApi=readFileSync(new URL("../app/api/agent-actions/route.ts",import.meta.url),"utf8");
+const executeApi=readFileSync(new URL("../app/api/agents/[id]/execute/route.ts",import.meta.url),"utf8");
+const agentService=readFileSync(new URL("../app/crm/agents/agent-service.ts",import.meta.url),"utf8");
 
 test("canonical eight agents are seeded",()=>{
   for(const slug of ["sav-sales","sav-bde","sav-sales-manager","sav-finance","sav-credit","sav-document","sav-followup","sav-support"]){
@@ -86,7 +88,8 @@ test("agent UI has required detail states and real test console",()=>{
     assert.match(moduleUi,new RegExp(label.replace(/[&]/g,"&")));
   }
   assert.match(moduleUi,/Agent Test Console/);
-  assert.match(moduleUi,/AI_PROVIDER_NOT_CONFIGURED/);
+  assert.match(moduleUi,/AgentApiError/);
+  assert.doesNotMatch(moduleUi,/catch\(e\)\{setTestResult\(\{error:"AI_PROVIDER_NOT_CONFIGURED"/);
   assert.match(moduleUi,/Loading AI agents/);
 });
 
@@ -94,4 +97,15 @@ test("action API executes only after server request boundary",()=>{
   assert.match(actionApi,/sav_ai_crm_request_agent_action/);
   assert.match(actionApi,/approval_required/);
   assert.match(actionApi,/sav_ai_crm_execute_agent_action/);
+});
+
+
+test("execution API distinguishes database readiness from provider failures",()=>{
+  assert.match(executeApi,/DATABASE_NOT_READY/);
+  assert.match(executeApi,/PGRST202/);
+  assert.match(executeApi,/Could not find the function/);
+  assert.match(executeApi,/getAIProvider\(\)\.planAction/);
+  assert.match(provider,/AI_PROVIDER_NOT_CONFIGURED/);
+  assert.match(provider,/AI_PROVIDER_ERROR/);
+  assert.match(agentService,/AgentApiError/);
 });
