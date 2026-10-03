@@ -8,11 +8,22 @@ async function authHeaders(){
   return {Authorization:`Bearer ${token}`,"Content-Type":"application/json"};
 }
 
+export class AgentApiError extends Error{
+  code:string;
+  status:number;
+  constructor(message:string,code:string,status:number){
+    super(message);
+    this.name="AgentApiError";
+    this.code=code;
+    this.status=status;
+  }
+}
+
 async function api<T>(url:string,init?:RequestInit):Promise<T>{
   const headers={...(await authHeaders()),...(init?.headers||{})};
   const res=await fetch(url,{...init,headers});
-  const body=await res.json().catch(()=>({}));
-  if(!res.ok) throw new Error(body.message||body.error||"Request failed");
+  const body=await res.json().catch(()=>({})) as {message?:string;error?:string};
+  if(!res.ok) throw new AgentApiError(body.message||body.error||"Request failed",body.error||"AGENT_REQUEST_FAILED",res.status);
   return body as T;
 }
 
