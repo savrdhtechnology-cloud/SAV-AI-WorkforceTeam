@@ -489,7 +489,7 @@ create or replace function public.sav_ai_crm_dispatch_workflow_event(
  p_event text,p_context jsonb,p_event_key text
 ) returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members; tr record; results jsonb:='[]'::jsonb; eid uuid; run_result jsonb; idem text;
 begin
  me:=sav_ai_crm.workflow_current_member();
@@ -510,7 +510,7 @@ begin
    end if;
  end loop;
  return results;
-end $;
+end $$;
 -- Test plan ------------------------------------------------------------------
 create or replace function public.sav_ai_crm_test_workflow(p_workflow_id uuid,p_context jsonb)
 returns jsonb language plpgsql stable security definer
