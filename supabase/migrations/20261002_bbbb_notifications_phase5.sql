@@ -386,6 +386,8 @@ begin
  values(me.workspace_id,nid,'notification_created',me.id,jsonb_build_object('status',initial_status,'source_type',p_source_type));
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
  values(me.workspace_id,auth.uid(),'notification.created','notification',nid,jsonb_build_object('channel',p_channel,'status',initial_status));
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ values(me.workspace_id,auth.uid(),'notification.'||lower(initial_status),'notification',nid,jsonb_build_object('channel',p_channel));
  return nid;
 end $$;
 
@@ -491,7 +493,8 @@ begin
  update sav_ai_crm.notifications set read_at=case when p_read then now() else null end,
    status=case when p_read and channel='in_app' then 'READ' when not p_read and channel='in_app' and status='READ' then 'DELIVERED' else status end,updated_at=now() where id=n.id;
  insert into sav_ai_crm.notification_events(workspace_id,notification_id,event_type,actor_member_id) values(me.workspace_id,n.id,case when p_read then 'notification_read' else 'notification_unread' end,me.id);
-end $$;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id) values(me.workspace_id,auth.uid(),case when p_read then 'notification.read' else 'notification.unread' end,'notification',n.id);
+end $;
 
 create or replace function public.sav_ai_crm_notifications_mark_all_read()
 returns integer language plpgsql security definer
@@ -538,7 +541,8 @@ begin
  update sav_ai_crm.notifications set status='QUEUED',next_attempt_at=now(),updated_at=now() where id=n.id;
  insert into sav_ai_crm.notification_deliveries(workspace_id,notification_id,channel,status,attempt_number) values(me.workspace_id,n.id,n.channel,'QUEUED',next_attempt);
  insert into sav_ai_crm.notification_events(workspace_id,notification_id,event_type,actor_member_id,details) values(me.workspace_id,n.id,'notification_retried',me.id,jsonb_build_object('attempt',next_attempt));
-end $$;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata) values(me.workspace_id,auth.uid(),'notification.retried','notification',n.id,jsonb_build_object('attempt',next_attempt));
+end $;
 
 create or replace function public.sav_ai_crm_notification_preferences()
 returns jsonb language plpgsql stable security definer set search_path=public,sav_ai_crm
@@ -612,6 +616,17 @@ begin
  return result;
 end $$;
 revoke all on function sav_ai_crm.render_notification_template(text,jsonb) from public,anon,authenticated;
+
+create or replace function public.sav_ai_crm_audit_notification_channel_change(p_channel text,p_account_id uuid)
+returns void language plpgsql security definer set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members;
+begin
+ me:=sav_ai_crm.notification_current_member(); if me.id is null or me.role not in ('owner','admin') then raise exception 'Channel audit requires owner or admin'; end if;
+ if p_channel not in ('email','whatsapp','sms','push','webhook','in_app') then raise exception 'Invalid notification channel'; end if;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ values(me.workspace_id,auth.uid(),'notification.channel.changed','channel_account',p_account_id,jsonb_build_object('channel',p_channel));
+end $;
 
 create or replace function public.sav_ai_crm_notification_schedules()
 returns jsonb language plpgsql stable security definer set search_path=public,sav_ai_crm
@@ -1171,6 +1186,7 @@ revoke all on function public.sav_ai_crm_notification_preferences() from public,
 revoke all on function public.sav_ai_crm_update_notification_preference(text,boolean,text,time,time,text) from public,anon;
 revoke all on function public.sav_ai_crm_notification_templates() from public,anon;
 revoke all on function public.sav_ai_crm_save_notification_template(uuid,text,text,text,text,text,text[],boolean) from public,anon;
+revoke all on function public.sav_ai_crm_audit_notification_channel_change(text,uuid) from public,anon;
 revoke all on function public.sav_ai_crm_notification_schedules() from public,anon;
 revoke all on function public.sav_ai_crm_save_notification_schedule(uuid,text,text,uuid,text,text,text,text,timestamptz,text,text,uuid,text,jsonb) from public,anon;
 revoke all on function public.sav_ai_crm_notification_channels() from public,anon;
@@ -1197,6 +1213,7 @@ grant execute on function public.sav_ai_crm_notification_preferences() to authen
 grant execute on function public.sav_ai_crm_update_notification_preference(text,boolean,text,time,time,text) to authenticated;
 grant execute on function public.sav_ai_crm_notification_templates() to authenticated;
 grant execute on function public.sav_ai_crm_save_notification_template(uuid,text,text,text,text,text,text[],boolean) to authenticated;
+grant execute on function public.sav_ai_crm_audit_notification_channel_change(text,uuid) to authenticated;
 grant execute on function public.sav_ai_crm_notification_schedules() to authenticated;
 grant execute on function public.sav_ai_crm_save_notification_schedule(uuid,text,text,uuid,text,text,text,text,timestamptz,text,text,uuid,text,jsonb) to authenticated;
 grant execute on function public.sav_ai_crm_notification_channels() to authenticated;
