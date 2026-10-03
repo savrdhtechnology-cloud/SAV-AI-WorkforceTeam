@@ -362,3 +362,160 @@ radial-gradient(circle at 70% 70%,rgba(73,227,255,.15),transparent 26%),#071523}
 @media(max-width:1200px){.notification-metrics{grid-template-columns:repeat(5,1fr)}.notification-filters{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:850px){.notification-grid,.notification-detail-grid{grid-template-columns:1fr}.notification-setting-row{grid-template-columns:1fr 1fr}.notification-template-grid,.notification-channel-grid{grid-template-columns:1fr 1fr}.notification-bell-menu{right:-80px;width:300px}}
 @media(max-width:560px){.notification-metrics{grid-template-columns:repeat(3,1fr)}.notification-filters{grid-template-columns:1fr 1fr}.notification-template-grid,.notification-channel-grid{grid-template-columns:1fr}.notification-setting-row{grid-template-columns:1fr}.notification-row{grid-template-columns:28px minmax(0,1fr)}.notification-row-side{grid-column:2;justify-items:start;grid-template-columns:auto auto auto}.notification-detail-page{padding:10px}}
+
+
+/* --------------------------------------------------------------------------
+   CRM readability pass — desktop typography only, UI structure unchanged
+   -------------------------------------------------------------------------- */
+@media (min-width:701px){
+  .crm-brand span{font-size:9.5px}
+  .crm-nav button{font-size:12.5px}
+  .crm-user b{font-size:11.5px}
+  .crm-user span{font-size:9.5px}
+  .crm-sidebar-foot button{font-size:10.5px}
+
+  .crm-title-wrap small{font-size:9.5px}
+  .crm-title-wrap h1{font-size:22px}
+  .crm-top-actions button{font-size:10.5px}
+
+  .crm-metric-head{font-size:10.5px}
+  .crm-metric span{font-size:9.5px}
+  .crm-panel-head h3{font-size:13.5px}
+  .crm-panel-head span{font-size:9.5px}
+  .crm-activity b{font-size:10.5px}
+  .crm-activity span{font-size:9.5px}
+  .crm-activity time{font-size:8.5px}
+
+  .crm-search input,.crm-form input,.crm-form select,.crm-form textarea{font-size:11.5px}
+  .crm-form label{font-size:9.5px}
+  .crm-form-actions button,.crm-filter-row button{font-size:10px}
+  .crm-table thead th{font-size:9px}
+  .crm-table td{font-size:10.5px}
+  .crm-table strong{font-size:11.5px}
+  .crm-table small{font-size:9px}
+  .crm-badge{font-size:9px}
+  .crm-status-select{font-size:10px}
+
+  .pipeline-head b,.pipeline-card strong{font-size:10.5px}
+  .pipeline-head span,.pipeline-card span{font-size:9px}
+  .pipeline-card em{font-size:9.5px}
+  .crm-agent-card h3,.crm-integration-card h3{font-size:13px}
+  .crm-agent-card p,.crm-integration-card p{font-size:10.5px}
+  .crm-agent-meta span{font-size:9px}
+  .crm-empty h3{font-size:14px}
+  .crm-empty p{font-size:10.5px}
+  .crm-modal-head h3{font-size:15px}
+
+  .task-metric span{font-size:9.5px}
+  .task-toolbar select,.task-card-actions select,.task-new-btn,.task-scopes button{font-size:10px}
+  .task-priority{font-size:9px}
+  .task-card-copy strong{font-size:11.5px}
+  .task-card-copy span{font-size:9.5px}
+  .task-card-copy small{font-size:9px}
+  .task-assignee{font-size:9.5px}
+  .task-loading,.task-error,.task-validation{font-size:10px}
+  .task-drawer-head span{font-size:9px}
+  .task-drawer-head h3{font-size:18px}
+  .task-detail-grid span,.task-note b{font-size:9px}
+  .task-detail-grid b,.task-note p{font-size:10.5px}
+  .task-history h4{font-size:11.5px}
+  .task-history>p{font-size:9.5px}
+  .task-history-row b{font-size:10.5px}
+  .task-history-row span,.task-history-row small{font-size:9px}
+  .task-drawer-actions button{font-size:10px}
+
+  .agent-metric span{font-size:9.5px}
+  .agent-list-head{font-size:10.5px}
+  .agent-list b{font-size:10.5px}
+  .agent-list small,.agent-status{font-size:9px}
+  .agent-detail-head small{font-size:9px}
+  .agent-detail-head h2{font-size:19px}
+  .agent-detail-head p{font-size:10px}
+  .agent-head-actions button,.agent-head-actions a{font-size:10px}
+  .agent-tabs button{font-size:9.5px}
+  .agent-overview-grid span{font-size:9px}
+  .agent-overview-grid strong{font-size:11px}
+  .agent-wide b{font-size:9.5px}
+  .agent-wide p{font-size:10.5px}
+  .agent-cap-grid b{font-size:10px}
+  .agent-cap-grid span,.agent-cap-grid em{font-size:9px}
+  .agent-channel-grid label{font-size:10px}
+  .agent-json{font-size:9.5px}
+  .agent-test-console label{font-size:9px}
+  .agent-test-console select,.agent-test-console textarea{font-size:10px}
+  .agent-console-head b{font-size:10.5px}
+  .agent-console-head span{font-size:9px}
+  .agent-console-result{font-size:9.5px}
+  .agent-success,.agent-loading{font-size:10px}
+  .agent-route-head small{font-size:9px}
+  .agent-route-head h1{font-size:22px}
+  .agent-route-head>a{font-size:10px}
+
+  .workflow-module button,.workflow-module select,.workflow-module input{font-size:10px}
+  .workflow-module textarea{font-size:10px}
+  .workflow-module small{font-size:9px}
+  .workflow-module p{font-size:10px}
+  .workflow-module .crm-card span{font-size:9px}
+  .workflow-module .crm-card strong,.workflow-module .crm-card b{font-size:10.5px}
+  .workflow-edge-editor span,.workflow-edge-editor select{font-size:9px}
+  .workflow-test-panel textarea,.workflow-test-panel pre{font-size:9.5px}
+  .workflow-test-panel button{font-size:10px}
+  .workflow-empty-copy,.workflow-loading{font-size:10px}
+  .workflow-execution-summary span{font-size:9px}
+  .workflow-execution-summary strong{font-size:11px}
+  .workflow-timeline-row b{font-size:10.5px}
+  .workflow-timeline-row small,.workflow-timeline-row em,.workflow-timeline-row pre{font-size:9px}
+
+  .inbox-summary span{font-size:9px}
+  .inbox-filter-row select,.inbox-filter-row button{font-size:9.5px}
+  .inbox-list-top time{font-size:8.5px}
+  .inbox-list-title b{font-size:10.5px}
+  .inbox-list-title em{font-size:9px}
+  .inbox-list p{font-size:9.5px}
+  .inbox-list-meta{font-size:8.5px}
+  .inbox-channel,.priority{font-size:8.5px}
+  .inbox-title-line h3{font-size:13.5px}
+  .inbox-thread-head small{font-size:9px}
+  .inbox-head-actions select,.inbox-link-row select,.inbox-link-row input,.inbox-note-row input,
+  .inbox-head-actions button,.inbox-link-row button,.inbox-note-row button{font-size:9.5px}
+  .inbox-message-meta{font-size:8.5px}
+  .inbox-bubble{font-size:10px}
+  .inbox-delivery,.inbox-delivery button{font-size:8.5px}
+  .inbox-compose-controls select,.inbox-compose-controls button{font-size:9.5px}
+  .inbox-composer textarea{font-size:10px}
+  .inbox-compose-foot span{font-size:8.5px}
+  .inbox-compose-foot button{font-size:10px}
+  .inbox-activity>p,.channel-manager-row span{font-size:9px}
+  .inbox-loading,.channel-manager-row b{font-size:10px}
+
+  .notification-loading{font-size:10px}
+  .notification-metric span{font-size:8.5px}
+  .notification-tabs button,.notification-toolbar>button{font-size:9.5px}
+  .notification-filters select,.notification-filters input{font-size:9.5px}
+  .notification-row b{font-size:10px}
+  .notification-row span{font-size:9px}
+  .notification-row small,.notification-row-side time{font-size:8px}
+  .notification-status{font-size:8px}
+  .notification-upcoming b{font-size:9.5px}
+  .notification-upcoming span{font-size:8.5px}
+  .notification-setting-row{font-size:9px}
+  .notification-setting-row select,.notification-setting-row input{font-size:9px}
+  .notification-template-grid b,.notification-channel-grid b{font-size:10.5px}
+  .notification-template-grid span,.notification-template-grid small,.notification-channel-grid p{font-size:9px}
+  .notification-template-grid p,.notification-help{font-size:9.5px}
+  .notification-bell em{font-size:8px}
+  .notification-bell-head b{font-size:10px}
+  .notification-bell-head button{font-size:9px}
+  .notification-bell-menu>a b{font-size:9.5px}
+  .notification-bell-menu>a span{font-size:8.5px}
+  .notification-bell-menu>a time{font-size:8px}
+  .notification-bell-menu>.notification-bell-all,.notification-bell-menu>p{font-size:9px}
+  .notification-detail-title b{font-size:10.5px}
+  .notification-detail-title span{font-size:9px}
+  .notification-detail-body{font-size:10.5px}
+  .notification-detail-meta span{font-size:8.5px}
+  .notification-detail-meta b{font-size:9.5px}
+  .notification-deep-link,.notification-detail-actions button{font-size:9.5px}
+  .notification-timeline-row b{font-size:9.5px}
+  .notification-timeline-row span,.notification-timeline-row small,.notification-timeline-row time{font-size:8.5px}
+}
