@@ -1,0 +1,1 @@
+import NotificationDetailView from "../NotificationDetailView";export default async function NotificationPage({params}:{params:Promise<{id:string}>}){const {id}=await params;return <NotificationDetailView id={id}/>;}
