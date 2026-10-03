@@ -59,8 +59,25 @@ class OpenAIProvider implements AIProvider {
     this.client=new OpenAI({apiKey:this.apiKey});
   }
 
-  private error<T>():AIProviderResult<T>{
-    return {ok:false,error:"AI_PROVIDER_ERROR",message:"OpenAI Responses API request failed."};
+  private error<T>(error:unknown):AIProviderResult<T>{
+    const value=(error&&typeof error==="object"?error:{}) as Record<string,unknown>;
+    const nested=(value.error&&typeof value.error==="object"?value.error:{}) as Record<string,unknown>;
+    const status=typeof value.status==="number"?value.status:null;
+    const code=typeof value.code==="string"?value.code:(typeof nested.code==="string"?nested.code:null);
+    const type=typeof value.type==="string"?value.type:(typeof nested.type==="string"?nested.type:null);
+    const param=typeof value.param==="string"?value.param:(typeof nested.param==="string"?nested.param:null);
+    const requestId=typeof value.request_id==="string"?value.request_id:(typeof value.requestID==="string"?value.requestID:null);
+    const rawMessage=error instanceof Error?error.message:(typeof nested.message==="string"?nested.message:"OpenAI request failed");
+    const message=rawMessage.replace(/sk-[A-Za-z0-9_-]+/g,"[REDACTED]");
+    console.error("OpenAI Responses API error",{
+      provider:OPENAI_PROVIDER,model:this.model,status,code,type,param,request_id:requestId,message
+    });
+    const detail=[status?("HTTP "+status):null,code,type].filter(Boolean).join(" · ");
+    return {
+      ok:false,
+      error:"AI_PROVIDER_ERROR",
+      message:detail?("OpenAI Responses API request failed ("+detail+")."):"OpenAI Responses API request failed."
+    };
   }
 
   async generateResponse(input:{prompt:string;context?:Record<string,unknown>}):Promise<AIProviderResult<{text:string}>>{
@@ -72,8 +89,8 @@ class OpenAIProvider implements AIProvider {
         store:false
       });
       return {ok:true,data:{text:response.output_text},provider:OPENAI_PROVIDER};
-    }catch{
-      return this.error<{text:string}>();
+    }catch(error){
+      return this.error<{text:string}>(error);
     }
   }
 
@@ -101,8 +118,8 @@ class OpenAIProvider implements AIProvider {
       });
       const parsed=parseJsonObject(response.output_text);
       return {ok:true,data:{intent:String(parsed.intent||""),confidence:clampConfidence(parsed.confidence)},provider:OPENAI_PROVIDER};
-    }catch{
-      return this.error<{intent:string;confidence:number}>();
+    }catch(error){
+      return this.error<{intent:string;confidence:number}>(error);
     }
   }
 
@@ -116,8 +133,8 @@ class OpenAIProvider implements AIProvider {
         store:false
       });
       return {ok:true,data:parseJsonObject(response.output_text),provider:OPENAI_PROVIDER};
-    }catch{
-      return this.error<Record<string,unknown>>();
+    }catch(error){
+      return this.error<Record<string,unknown>>(error);
     }
   }
 
@@ -130,8 +147,8 @@ class OpenAIProvider implements AIProvider {
         store:false
       });
       return {ok:true,data:{summary:response.output_text},provider:OPENAI_PROVIDER};
-    }catch{
-      return this.error<{summary:string}>();
+    }catch(error){
+      return this.error<{summary:string}>(error);
     }
   }
 
@@ -199,8 +216,8 @@ class OpenAIProvider implements AIProvider {
         },
         provider:OPENAI_PROVIDER
       };
-    }catch{
-      return this.error<{action:string;payload:Record<string,unknown>;confidence:number}>();
+    }catch(error){
+      return this.error<{action:string;payload:Record<string,unknown>;confidence:number}>(error);
     }
   }
 
@@ -225,8 +242,8 @@ class OpenAIProvider implements AIProvider {
       });
       const parsed=parseJsonObject(response.output_text);
       return {ok:true,data:{confidence:clampConfidence(parsed.confidence)},provider:OPENAI_PROVIDER};
-    }catch{
-      return this.error<{confidence:number}>();
+    }catch(error){
+      return this.error<{confidence:number}>(error);
     }
   }
 }
