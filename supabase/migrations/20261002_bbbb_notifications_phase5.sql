@@ -627,7 +627,7 @@ begin
     and (t.reminder_at<=now()+interval '24 hours' or t.due_at<=now()+interval '24 hours')
   order by coalesce(t.reminder_at,t.due_at) limit 250
  loop
-  ntype:=case when t.followup_type is not null and t.followup_type<>'general' then 'FOLLOWUP_REMINDER' else 'TASK_REMINDER' end;
+  ntype:=case when r.followup_type is not null and r.followup_type<>'general' then 'FOLLOWUP_REMINDER' else 'TASK_REMINDER' end;
   if r.due_at<now() then ntype:='OVERDUE_REMINDER'; end if;
   deep:='/crm/tasks?task='||r.id::text;
   nid:=public.sav_ai_crm_create_notification(ntype,case when r.due_at<now() then 'Task overdue' else 'Task reminder' end,r.title,r.priority,'in_app',
@@ -645,6 +645,60 @@ alter table sav_ai_crm.ai_agent_capabilities add constraint ai_agent_capabilitie
  'ASSIGN_TASK','READ_KNOWLEDGE','SUMMARIZE_CONVERSATION','SEND_NOTIFICATION',
  'DELETE_LEAD','PERMANENT_DELETE_TASK','FINANCIAL_ACTION','CHANGE_PERMISSION','SEND_BULK_MESSAGE'
 ));
+
+insert into sav_ai_crm.ai_agent_capabilities(workspace_id,agent_id,capability,risk_level,approval_required,is_enabled,configuration)
+select a.workspace_id,a.id,'SEND_NOTIFICATION','high',true,true,'{}'::jsonb
+from sav_ai_crm.ai_agents a
+where not exists(select 1 from sav_ai_crm.ai_agent_capabilities c where c.agent_id=a.id and c.capability='SEND_NOTIFICATION');
+
+create or replace function public.sav_ai_crm_queue_approved_agent_notification(p_action_id uuid)
+returns uuid language plpgsql security definer set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members; act sav_ai_crm.ai_agent_actions; agent sav_ai_crm.ai_agents; nid uuid; recipient uuid; channel text;
+begin
+ me:=sav_ai_crm.notification_current_member();
+ if me.id is null or not sav_ai_crm.notification_can_create(me.role) then raise exception 'AI notification queue not permitted'; end if;
+ select * into act from sav_ai_crm.ai_agent_actions where id=p_action_id and workspace_id=me.workspace_id for update;
+ if act.id is null or act.action<>'SEND_NOTIFICATION' then raise exception 'Approved SEND_NOTIFICATION action not found'; end if;
+ if act.status not in ('approved','executing','completed','failed') then raise exception 'Human approval required'; end if;
+ if act.status in ('executing','completed','failed') and nullif(act.result->>'notification_id','') is not null then return (act.result->>'notification_id')::uuid; end if;
+ select * into agent from sav_ai_crm.ai_agents where id=act.agent_id and workspace_id=me.workspace_id and status='active';
+ if agent.id is null then raise exception 'AI agent not available'; end if;
+ if not exists(select 1 from sav_ai_crm.ai_agent_capabilities c where c.agent_id=agent.id and c.capability='SEND_NOTIFICATION' and c.is_enabled) then raise exception 'Agent capability denied'; end if;
+ recipient:=nullif(act.payload->>'recipient_member_id','')::uuid;
+ if recipient is not null and not exists(select 1 from sav_ai_crm.members where id=recipient and workspace_id=me.workspace_id and is_active) then raise exception 'Recipient outside workspace'; end if;
+ channel:=coalesce(nullif(act.payload->>'channel',''),'in_app');
+ nid:=public.sav_ai_crm_create_notification(
+   coalesce(nullif(act.payload->>'notification_type',''),'AI_AGENT_NOTIFICATION'),
+   coalesce(nullif(act.payload->>'title',''),agent.display_name||' notification'),
+   coalesce(nullif(act.payload->>'body',''),'AI agent notification request'),
+   coalesce(nullif(act.payload->>'priority',''),'medium'),channel,recipient,nullif(act.payload->>'recipient_address',''),
+   'ai_agent',act.id,nullif(act.payload->>'deep_link',''),nullif(act.payload->>'scheduled_at','')::timestamptz,agent.id,
+   nullif(act.payload->>'lead_id','')::uuid,nullif(act.payload->>'contact_id','')::uuid,nullif(act.payload->>'task_id','')::uuid,
+   nullif(act.payload->>'workflow_id','')::uuid,nullif(act.payload->>'workflow_execution_id','')::uuid,nullif(act.payload->>'conversation_id','')::uuid,
+   coalesce(act.payload->'metadata','{}'::jsonb),'ai-notification:'||act.id::text,false
+ );
+ update sav_ai_crm.ai_agent_actions set status='executing',result=jsonb_build_object('notification_id',nid),updated_at=now() where id=act.id;
+ insert into sav_ai_crm.notification_events(workspace_id,notification_id,event_type,actor_agent_id,details)
+ values(me.workspace_id,nid,'ai_notification_queued',agent.id,jsonb_build_object('agent_action_id',act.id));
+ return nid;
+end $;
+
+create or replace function public.sav_ai_crm_finalize_agent_notification(p_action_id uuid,p_notification_id uuid,p_ok boolean,p_error text default null)
+returns void language plpgsql security definer set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members; act sav_ai_crm.ai_agent_actions; n sav_ai_crm.notifications;
+begin
+ me:=sav_ai_crm.notification_current_member(); if me.id is null or not sav_ai_crm.notification_can_create(me.role) then raise exception 'AI notification finalization not permitted'; end if;
+ select * into act from sav_ai_crm.ai_agent_actions where id=p_action_id and workspace_id=me.workspace_id for update;
+ select * into n from sav_ai_crm.notifications where id=p_notification_id and workspace_id=me.workspace_id;
+ if act.id is null or n.id is null or act.agent_id<>n.agent_id then raise exception 'AI notification action mismatch'; end if;
+ update sav_ai_crm.ai_agent_actions set status=case when p_ok then 'completed' else 'failed' end,
+   result=jsonb_build_object('notification_id',n.id,'status',n.status),error=case when p_ok then null else coalesce(p_error,n.error_message,'NOTIFICATION_FAILED') end,
+   completed_at=now(),updated_at=now() where id=act.id;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ values(me.workspace_id,auth.uid(),case when p_ok then 'notification.ai.completed' else 'notification.ai.failed' end,'ai_agent_action',act.id,jsonb_build_object('notification_id',n.id));
+end $;
 
 -- Phase 3: replace notification placeholder with central Phase 5 notification creation.
 create or replace function sav_ai_crm.workflow_create_notification(p_execution_id uuid,p_node_id uuid)
@@ -711,6 +765,8 @@ revoke all on function public.sav_ai_crm_notification_schedules() from public,an
 revoke all on function public.sav_ai_crm_save_notification_schedule(uuid,text,text,uuid,text,text,text,text,timestamptz,text,text,uuid,text,jsonb) from public,anon;
 revoke all on function public.sav_ai_crm_notification_channels() from public,anon;
 revoke all on function public.sav_ai_crm_notification_due_worker(integer) from public,anon;
+revoke all on function public.sav_ai_crm_queue_approved_agent_notification(uuid) from public,anon;
+revoke all on function public.sav_ai_crm_finalize_agent_notification(uuid,uuid,boolean,text) from public,anon;
 revoke all on function public.sav_ai_crm_sync_task_notifications() from public,anon;
 
 grant execute on function public.sav_ai_crm_notification_context() to authenticated;
@@ -733,6 +789,8 @@ grant execute on function public.sav_ai_crm_notification_schedules() to authenti
 grant execute on function public.sav_ai_crm_save_notification_schedule(uuid,text,text,uuid,text,text,text,text,timestamptz,text,text,uuid,text,jsonb) to authenticated;
 grant execute on function public.sav_ai_crm_notification_channels() to authenticated;
 grant execute on function public.sav_ai_crm_notification_due_worker(integer) to authenticated;
+grant execute on function public.sav_ai_crm_queue_approved_agent_notification(uuid) to authenticated;
+grant execute on function public.sav_ai_crm_finalize_agent_notification(uuid,uuid,boolean,text) to authenticated;
 grant execute on function public.sav_ai_crm_sync_task_notifications() to authenticated;
 
 commit;
