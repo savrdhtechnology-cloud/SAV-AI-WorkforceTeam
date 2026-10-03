@@ -37,9 +37,16 @@ test("risk classification is explicit and sensitive actions are critical/high",(
   assert.match(types,/risk === "high" \|\| risk === "critical"/);
 });
 
-test("provider fails closed instead of faking output",()=>{
+test("provider fails closed and uses the real OpenAI Responses adapter",()=>{
   assert.match(provider,/AI_PROVIDER_NOT_CONFIGURED/);
-  assert.match(provider,/No AI provider credentials are configured/);
+  assert.match(provider,/AI_PROVIDER_ERROR/);
+  assert.match(provider,/from "openai"/);
+  assert.match(provider,/responses\.create/);
+  assert.match(provider,/AI_PROVIDER/);
+  assert.match(provider,/AI_API_KEY/);
+  assert.match(provider,/AI_MODEL/);
+  assert.match(provider,/sales_qualification_plan/);
+  assert.match(provider,/external_action_performed:false/);
   assert.doesNotMatch(provider,/mock|fake response|dummy/i);
 });
 
@@ -169,7 +176,10 @@ test("staging Supabase configuration never falls back to production",()=>{
 test("provider boundary remains fail-closed and does not fabricate planning output",()=>{
   assert.match(provider,/AI_PROVIDER_NOT_CONFIGURED/);
   assert.match(provider,/AI_PROVIDER_ERROR/);
-  assert.match(provider,/no provider adapter is installed/i);
+  assert.match(provider,/configuredProvider/);
+  assert.match(provider,/OpenAIProvider/);
+  assert.match(provider,/responses\.create/);
   assert.doesNotMatch(provider,/mock|fake response|dummy/i);
   assert.match(executeApi,/getAIProvider\(\)\.planAction/);
+  assert.match(executeApi,/sav_ai_crm_list_leads/);
 });
