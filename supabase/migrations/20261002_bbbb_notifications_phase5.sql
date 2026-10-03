@@ -658,6 +658,54 @@ begin
  return jsonb_build_object('created',created);
 end $$;
 
+create or replace function sav_ai_crm.sync_task_notification_trigger()
+returns trigger language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $
+declare recipient uuid; notify_at timestamptz; ntype text; nid uuid; current_status text;
+begin
+ update sav_ai_crm.notifications set status='CANCELLED',updated_at=now()
+ where workspace_id=new.workspace_id and task_id=new.id and status in ('QUEUED','SCHEDULED','RETRYING')
+   and idempotency_key like 'task-auto:'||new.id::text||':%';
+
+ if new.archived_at is not null or new.status in ('completed','cancelled') then return new; end if;
+ recipient:=new.assigned_to;
+ if recipient is null then
+   select id into recipient from sav_ai_crm.members where workspace_id=new.workspace_id and is_active and role in ('owner','admin','manager')
+   order by case role when 'owner' then 0 when 'admin' then 1 else 2 end,created_at limit 1;
+ end if;
+ if recipient is null then return new; end if;
+ notify_at:=coalesce(new.reminder_at,case when new.due_at is not null then new.due_at-interval '1 day' else null end);
+ if notify_at is null then return new; end if;
+ ntype:=case when new.due_at is not null and new.due_at<now() then 'OVERDUE_REMINDER'
+             when coalesce(new.followup_type,'general')<>'general' then 'FOLLOWUP_REMINDER' else 'TASK_REMINDER' end;
+ current_status:=case when notify_at>now() then 'SCHEDULED' else 'QUEUED' end;
+
+ insert into sav_ai_crm.notifications(workspace_id,recipient_member_id,notification_type,title,body,priority,channel,status,source_type,source_id,deep_link,
+   task_id,lead_id,contact_id,agent_id,scheduled_at,next_attempt_at,metadata,idempotency_key)
+ values(new.workspace_id,recipient,ntype,case when ntype='OVERDUE_REMINDER' then 'Task overdue' when ntype='FOLLOWUP_REMINDER' then 'Follow-up reminder' else 'Task reminder' end,
+   new.title,new.priority,'in_app',current_status,'task',new.id,'/crm/tasks?task='||new.id::text,new.id,new.lead_id,new.contact_id,new.assigned_agent_id,
+   case when notify_at>now() then notify_at else null end,notify_at,jsonb_build_object('due_at',new.due_at,'reminder_at',new.reminder_at,'followup_type',new.followup_type),
+   'task-auto:'||new.id::text||':'||extract(epoch from notify_at)::bigint::text)
+ on conflict(workspace_id,idempotency_key) do update set status=excluded.status,scheduled_at=excluded.scheduled_at,next_attempt_at=excluded.next_attempt_at,updated_at=now()
+ returning id into nid;
+
+ insert into sav_ai_crm.notification_recipients(workspace_id,notification_id,member_id,channel)
+ values(new.workspace_id,nid,recipient,'in_app') on conflict(notification_id,member_id,channel) do nothing;
+ insert into sav_ai_crm.notification_deliveries(workspace_id,notification_id,channel,status,attempt_number)
+ select new.workspace_id,nid,'in_app',current_status,1 where not exists(select 1 from sav_ai_crm.notification_deliveries where notification_id=nid);
+ insert into sav_ai_crm.notification_events(workspace_id,notification_id,event_type,details)
+ values(new.workspace_id,nid,'task_notification_scheduled',jsonb_build_object('task_id',new.id,'scheduled_at',notify_at));
+ return new;
+end $;
+
+drop trigger if exists trg_task_notification_sync on sav_ai_crm.tasks;
+create trigger trg_task_notification_sync
+after insert or update of due_at,reminder_at,assigned_to,assigned_agent_id,status,archived_at,followup_type
+on sav_ai_crm.tasks for each row execute function sav_ai_crm.sync_task_notification_trigger();
+
+revoke all on function sav_ai_crm.sync_task_notification_trigger() from public,anon,authenticated;
+
 create or replace function public.sav_ai_crm_sync_task_notifications()
 returns jsonb language plpgsql security definer set search_path=public,sav_ai_crm
 as $$
