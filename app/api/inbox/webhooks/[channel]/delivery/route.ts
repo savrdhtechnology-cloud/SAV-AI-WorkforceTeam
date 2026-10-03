@@ -54,12 +54,20 @@ export async function POST(req:NextRequest,{params}:{params:Promise<{channel:str
 
   const event=delivery.status==="FAILED"?"MESSAGE_FAILED":delivery.status==="DELIVERED"||delivery.status==="READ"?"MESSAGE_DELIVERED":null;
   if(event&&!applied?.duplicate){
-    await admin.schema("sav_ai_crm").rpc("dispatch_workflow_event_system",{
-      p_workspace_id:account.workspace_id,
-      p_event:event,
+    const internal=admin.schema("sav_ai_crm");
+    await internal.rpc("dispatch_workflow_event_system",{
+      p_workspace_id:account.workspace_id,p_event:event,
       p_context:{conversation:{id:applied.conversation_id},message:{id:applied.message_id,provider_message_id:delivery.providerMessageId,status:delivery.status},channel},
       p_event_key:`delivery:${providerEventId}:${event}`
     });
+    if(event==="MESSAGE_FAILED"){
+      await internal.rpc("create_notification_system",{
+        p_workspace_id:account.workspace_id,p_notification_type:"MESSAGE_DELIVERY_UPDATE",p_title:"Message delivery failed",
+        p_body:"A "+channel+" message failed delivery.",p_priority:"high",p_source_type:"inbox",p_source_id:applied.message_id,
+        p_deep_link:"/crm/inbox?conversation="+applied.conversation_id,p_conversation_id:applied.conversation_id,p_recipient_member_id:null,
+        p_idempotency_key:"delivery-failed:"+providerEventId,p_metadata:{channel,provider_message_id:delivery.providerMessageId,status:delivery.status}
+      });
+    }
   }
   return Response.json({ok:true,duplicate:Boolean(applied?.duplicate),message_id:applied?.message_id,status:delivery.status});
 }
