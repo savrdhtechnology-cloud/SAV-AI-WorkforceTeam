@@ -337,6 +337,10 @@ begin
  if p_channel not in ('in_app','email','whatsapp','sms','push','webhook') then raise exception 'Invalid notification channel'; end if;
  if p_priority not in ('low','medium','high','urgent','critical') then raise exception 'Invalid priority'; end if;
  if p_recipient_member_id is not null and not exists(select 1 from sav_ai_crm.members where id=p_recipient_member_id and workspace_id=me.workspace_id and is_active) then raise exception 'Recipient outside workspace'; end if;
+ if p_recipient_member_id is null and nullif(trim(coalesce(p_recipient_address,'')),'') is not null and me.role not in ('owner','admin') then raise exception 'External recipient requires owner or admin'; end if;
+ if p_recipient_member_id is not null and p_channel='email' and nullif(trim(coalesce(p_recipient_address,'')),'') is null then
+   select email into p_recipient_address from sav_ai_crm.members where id=p_recipient_member_id and workspace_id=me.workspace_id;
+ end if;
  if p_agent_id is not null and not exists(select 1 from sav_ai_crm.ai_agents where id=p_agent_id and workspace_id=me.workspace_id and status='active') then raise exception 'AI agent outside workspace'; end if;
  if p_workflow_id is not null and not exists(select 1 from sav_ai_crm.workflows where id=p_workflow_id and workspace_id=me.workspace_id) then raise exception 'Workflow outside workspace'; end if;
  if p_conversation_id is not null and not exists(select 1 from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id) then raise exception 'Conversation outside workspace'; end if;
@@ -366,6 +370,44 @@ begin
  return nid;
 end $$;
 
+create or replace function public.sav_ai_crm_update_notification(
+ p_notification_id uuid,p_title text default null,p_body text default null,p_priority text default null,p_scheduled_at timestamptz default null,p_metadata jsonb default null
+) returns void language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members; n sav_ai_crm.notifications;
+begin
+ me:=sav_ai_crm.notification_current_member(); if me.id is null or not sav_ai_crm.notification_can_create(me.role) then raise exception 'Notification update not permitted'; end if;
+ select * into n from sav_ai_crm.notifications where id=p_notification_id and workspace_id=me.workspace_id for update;
+ if n.id is null then raise exception 'Notification not found'; end if;
+ if n.created_by<>me.id and not sav_ai_crm.notification_can_manage(me.role) then raise exception 'Notification update not permitted'; end if;
+ if n.status not in ('QUEUED','SCHEDULED','WAITING_APPROVAL') then raise exception 'Notification can no longer be edited'; end if;
+ if p_priority is not null and p_priority not in ('low','medium','high','urgent','critical') then raise exception 'Invalid priority'; end if;
+ update sav_ai_crm.notifications set title=coalesce(nullif(trim(coalesce(p_title,'')),''),title),body=coalesce(p_body,body),
+   priority=coalesce(p_priority,priority),scheduled_at=case when p_scheduled_at is not null then p_scheduled_at else scheduled_at end,
+   status=case when p_scheduled_at is not null and p_scheduled_at>now() and status<>'WAITING_APPROVAL' then 'SCHEDULED' else status end,
+   next_attempt_at=case when p_scheduled_at is not null then p_scheduled_at else next_attempt_at end,
+   metadata=case when p_metadata is not null then p_metadata else metadata end,updated_at=now()
+ where id=n.id;
+ insert into sav_ai_crm.notification_events(workspace_id,notification_id,event_type,actor_member_id) values(me.workspace_id,n.id,'notification_updated',me.id);
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id) values(me.workspace_id,auth.uid(),'notification.updated','notification',n.id);
+end $;
+
+create or replace function public.sav_ai_crm_notification_due_ids(p_limit integer default 100)
+returns jsonb language plpgsql stable security definer
+set search_path=public,sav_ai_crm
+as $
+declare me sav_ai_crm.members;
+begin
+ me:=sav_ai_crm.notification_current_member(); if me.id is null or me.role not in ('owner','admin','manager') then raise exception 'Notification worker access not permitted'; end if;
+ return coalesce((select jsonb_agg(id order by coalesce(next_attempt_at,scheduled_at,created_at)) from (
+  select id,next_attempt_at,scheduled_at,created_at from sav_ai_crm.notifications
+  where workspace_id=me.workspace_id and (
+    status='QUEUED' or (status='SCHEDULED' and scheduled_at<=now()) or (status='RETRYING' and next_attempt_at<=now())
+  ) order by coalesce(next_attempt_at,scheduled_at,created_at) limit least(greatest(p_limit,1),500)
+ )x),'[]'::jsonb);
+end $;
+
 create or replace function public.sav_ai_crm_notification_prepare_send(p_notification_id uuid)
 returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
@@ -381,7 +423,7 @@ begin
  update sav_ai_crm.notifications set status='SENDING',error_code=null,error_message=null,updated_at=now() where id=n.id;
  update sav_ai_crm.notification_deliveries set status='SENDING',updated_at=now() where notification_id=n.id and attempt_number=(select max(attempt_number) from sav_ai_crm.notification_deliveries where notification_id=n.id);
  insert into sav_ai_crm.notification_events(workspace_id,notification_id,event_type,actor_member_id) values(me.workspace_id,n.id,'notification_sending',me.id);
- return jsonb_build_object('id',n.id,'workspace_id',n.workspace_id,'channel',n.channel,'title',n.title,'body',n.body,'recipient_member_id',n.recipient_member_id,'recipient_address',n.recipient_address,'deep_link',n.deep_link,'metadata',n.metadata,'retry_count',n.retry_count,'max_retries',n.max_retries);
+ return jsonb_build_object('id',n.id,'workspace_id',n.workspace_id,'channel',n.channel,'notification_type',n.notification_type,'title',n.title,'body',n.body,'recipient_member_id',n.recipient_member_id,'recipient_address',n.recipient_address,'deep_link',n.deep_link,'conversation_id',n.conversation_id,'metadata',n.metadata,'retry_count',n.retry_count,'max_retries',n.max_retries);
 end $$;
 
 create or replace function public.sav_ai_crm_notification_record_result(
@@ -1007,6 +1049,8 @@ revoke all on function public.sav_ai_crm_notification_metrics() from public,anon
 revoke all on function public.sav_ai_crm_notification_upcoming() from public,anon;
 revoke all on function public.sav_ai_crm_notification_detail(uuid) from public,anon;
 revoke all on function public.sav_ai_crm_create_notification(text,text,text,text,text,uuid,text,text,uuid,text,timestamptz,uuid,uuid,uuid,uuid,uuid,uuid,uuid,jsonb,text,boolean) from public,anon;
+revoke all on function public.sav_ai_crm_update_notification(uuid,text,text,text,timestamptz,jsonb) from public,anon;
+revoke all on function public.sav_ai_crm_notification_due_ids(integer) from public,anon;
 revoke all on function public.sav_ai_crm_notification_prepare_send(uuid) from public,anon;
 revoke all on function public.sav_ai_crm_notification_record_result(uuid,boolean,text,text,text,text,text,jsonb,boolean) from public,anon;
 revoke all on function public.sav_ai_crm_notification_mark_read(uuid,boolean) from public,anon;
@@ -1031,6 +1075,8 @@ grant execute on function public.sav_ai_crm_notification_metrics() to authentica
 grant execute on function public.sav_ai_crm_notification_upcoming() to authenticated;
 grant execute on function public.sav_ai_crm_notification_detail(uuid) to authenticated;
 grant execute on function public.sav_ai_crm_create_notification(text,text,text,text,text,uuid,text,text,uuid,text,timestamptz,uuid,uuid,uuid,uuid,uuid,uuid,uuid,jsonb,text,boolean) to authenticated;
+grant execute on function public.sav_ai_crm_update_notification(uuid,text,text,text,timestamptz,jsonb) to authenticated;
+grant execute on function public.sav_ai_crm_notification_due_ids(integer) to authenticated;
 grant execute on function public.sav_ai_crm_notification_prepare_send(uuid) to authenticated;
 grant execute on function public.sav_ai_crm_notification_record_result(uuid,boolean,text,text,text,text,text,jsonb,boolean) to authenticated;
 grant execute on function public.sav_ai_crm_notification_mark_read(uuid,boolean) to authenticated;
