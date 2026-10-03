@@ -735,14 +735,270 @@ begin
 end $$;
 revoke all on function sav_ai_crm.workflow_create_notification(uuid,uuid) from public,anon,authenticated;
 
--- Recreate workflow runner by replacing only the NOTIFICATION placeholder block.
--- The application migration runner should execute Phase 3 before this migration.
-do $$
-declare src text;
+-- Extend the existing Phase 3 runner in-place: NOTIFICATION nodes now create Phase 5 records.
+create or replace function public.sav_ai_crm_run_workflow_execution(p_execution_id uuid)
+returns jsonb language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $
+declare
+ me sav_ai_crm.members; ex sav_ai_crm.workflow_executions; w sav_ai_crm.workflows; n sav_ai_crm.workflow_nodes;
+ ne_id uuid; next_id uuid; branch_key text; node_exec_id text; task_id uuid; action_result jsonb;
+ delay_seconds integer; approval_id uuid; agent_id uuid; capability text; target_type text; target_id uuid;
 begin
- -- marker-only guard for code review; function body replacement is provided by the app migration below.
- null;
-end $$;
+ me:=sav_ai_crm.workflow_current_member();
+ if me.id is null or me.role='viewer' then raise exception 'Workflow execution not permitted'; end if;
+ select * into ex from sav_ai_crm.workflow_executions where id=p_execution_id and workspace_id=me.workspace_id for update;
+ if ex.id is null then raise exception 'Workflow execution not found'; end if;
+ if ex.execution_state in ('completed','failed','cancelled') then return to_jsonb(ex); end if;
+ if ex.execution_state='waiting' and ex.scheduled_for>now() then return to_jsonb(ex); end if;
+ if ex.execution_state='waiting_approval' then return to_jsonb(ex); end if;
+ select * into w from sav_ai_crm.workflows where id=ex.workflow_id and workspace_id=ex.workspace_id;
+ update sav_ai_crm.workflow_executions set execution_state='running',scheduled_for=null,updated_at=now() where id=ex.id;
+
+ loop
+   select * into ex from sav_ai_crm.workflow_executions where id=p_execution_id;
+   if ex.depth>=ex.max_depth then
+     update sav_ai_crm.workflow_executions set execution_state='failed',error='MAX_EXECUTION_DEPTH_EXCEEDED',completed_at=now(),updated_at=now() where id=ex.id;
+     return jsonb_build_object('id',ex.id,'status','failed','error','MAX_EXECUTION_DEPTH_EXCEEDED');
+   end if;
+   if ex.current_node_id is null then
+     update sav_ai_crm.workflow_executions set execution_state='completed',completed_at=now(),updated_at=now() where id=ex.id;
+     update sav_ai_crm.workflows set success_count=success_count+1 where id=ex.workflow_id;
+     return jsonb_build_object('id',ex.id,'status','completed');
+   end if;
+
+   select * into n from sav_ai_crm.workflow_nodes where id=ex.current_node_id and workspace_id=ex.workspace_id;
+   if n.id is null then
+     update sav_ai_crm.workflow_executions set execution_state='failed',error='CURRENT_NODE_NOT_FOUND',completed_at=now(),updated_at=now() where id=ex.id;
+     return jsonb_build_object('id',ex.id,'status','failed','error','CURRENT_NODE_NOT_FOUND');
+   end if;
+
+   node_exec_id:=ex.id::text||':'||n.id::text||':'||ex.depth::text;
+   insert into sav_ai_crm.workflow_node_executions(workspace_id,execution_id,node_id,node_execution_id,input,status)
+   values(ex.workspace_id,ex.id,n.id,node_exec_id,ex.context,'running')
+   on conflict(execution_id,node_execution_id,attempt) do nothing
+   returning id into ne_id;
+
+   if n.node_type='END' then
+     update sav_ai_crm.workflow_node_executions set status='completed',output='{"ended":true}'::jsonb,completed_at=now() where execution_id=ex.id and node_execution_id=node_exec_id;
+     update sav_ai_crm.workflow_executions set current_node_id=null,execution_state='completed',depth=depth+1,completed_at=now(),updated_at=now() where id=ex.id;
+     update sav_ai_crm.workflows set success_count=success_count+1 where id=ex.workflow_id;
+     return jsonb_build_object('id',ex.id,'status','completed');
+
+   elsif n.node_type='CONDITION' then
+     branch_key:=case when sav_ai_crm.workflow_condition_match(n.config->'condition',ex.context) then 'true' else 'false' end;
+     next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,branch_key);
+     update sav_ai_crm.workflow_node_executions set status='completed',output=jsonb_build_object('matched',branch_key='true','branch',branch_key),completed_at=now()
+       where execution_id=ex.id and node_execution_id=node_exec_id;
+
+   elsif n.node_type='WAIT' then
+     delay_seconds:=greatest(1,least(coalesce((n.config->>'delay_seconds')::integer,60),604800));
+     next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,null);
+     update sav_ai_crm.workflow_node_executions set status='waiting',output=jsonb_build_object('delay_seconds',delay_seconds,'scheduled_for',now()+make_interval(secs=>delay_seconds)),completed_at=now()
+       where execution_id=ex.id and node_execution_id=node_exec_id;
+     update sav_ai_crm.workflow_executions set current_node_id=next_id,execution_state='waiting',scheduled_for=now()+make_interval(secs=>delay_seconds),depth=depth+1,updated_at=now() where id=ex.id;
+     return jsonb_build_object('id',ex.id,'status','waiting','scheduled_for',now()+make_interval(secs=>delay_seconds));
+
+   elsif n.node_type='HUMAN_APPROVAL' then
+     insert into sav_ai_crm.workflow_approvals(workspace_id,workflow_id,execution_id,node_id,approver_role,approver_user_id,requested_by,timeout_at,approval_reason,risk_level,status)
+     values(ex.workspace_id,ex.workflow_id,ex.id,n.id,n.config->>'approver_role',nullif(n.config->>'approver_user_id','')::uuid,me.id,
+       case when (n.config->>'timeout_seconds') is not null then now()+make_interval(secs=>(n.config->>'timeout_seconds')::integer) else null end,
+       coalesce(n.config->>'reason','Workflow approval required'),coalesce(n.config->>'risk_level','high'),'pending')
+     returning id into approval_id;
+     next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,'approved');
+     update sav_ai_crm.workflow_node_executions set status='waiting_approval',approval_required=true,risk_level=coalesce(n.config->>'risk_level','high'),output=jsonb_build_object('approval_id',approval_id),completed_at=now()
+       where execution_id=ex.id and node_execution_id=node_exec_id;
+     update sav_ai_crm.workflow_executions set current_node_id=next_id,execution_state='waiting_approval',depth=depth+1,updated_at=now() where id=ex.id;
+     return jsonb_build_object('id',ex.id,'status','waiting_approval','approval_id',approval_id);
+
+   elsif n.node_type in ('TASK','FOLLOW_UP') then
+     if n.config->>'lead_id_path' is not null then target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(n.config->>'lead_id_path','.'))::text),'null')::uuid;
+     else target_id:=nullif(n.config->>'lead_id','')::uuid; end if;
+     if target_id is not null and not exists(select 1 from sav_ai_crm.leads where id=target_id and workspace_id=ex.workspace_id) then raise exception 'Workflow task lead is outside workspace'; end if;
+     agent_id:=nullif(n.config->>'assigned_agent_id','')::uuid;
+     if agent_id is not null and not exists(select 1 from sav_ai_crm.ai_agents where id=agent_id and workspace_id=ex.workspace_id and status='active') then raise exception 'Workflow task agent is invalid'; end if;
+     insert into sav_ai_crm.tasks(workspace_id,lead_id,title,description,task_type,followup_type,status,priority,due_at,reminder_at,assigned_agent_id,created_by,notes)
+     values(ex.workspace_id,target_id,coalesce(n.config->>'title',n.label),n.config->>'description','followup',
+       case when n.node_type='FOLLOW_UP' then coalesce(n.config->>'followup_type','general') else 'general' end,
+       'pending',coalesce(n.config->>'priority','medium'),
+       case when (n.config->>'due_in_seconds') is not null then now()+make_interval(secs=>(n.config->>'due_in_seconds')::integer) else null end,
+       case when (n.config->>'reminder_in_seconds') is not null then now()+make_interval(secs=>(n.config->>'reminder_in_seconds')::integer) else null end,
+       agent_id,me.id,'Created by: Workflow — '||w.name)
+     returning id into task_id;
+     insert into sav_ai_crm.activities(workspace_id,lead_id,task_id,activity_type,title,description,metadata)
+     values(ex.workspace_id,target_id,task_id,case when n.node_type='FOLLOW_UP' then 'workflow_followup_created' else 'workflow_task_created' end,
+       'Workflow created task',coalesce(n.config->>'title',n.label),jsonb_build_object('workflow_id',w.id,'execution_id',ex.id,'node_id',n.id));
+     update sav_ai_crm.workflow_node_executions set status='completed',output=jsonb_build_object('task_id',task_id),completed_at=now()
+       where execution_id=ex.id and node_execution_id=node_exec_id;
+     next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,null);
+
+   elsif n.node_type='AI_AGENT' then
+     agent_id:=nullif(n.config->>'agent_id','')::uuid;
+     if agent_id is null and nullif(n.config->>'agent_slug','') is not null then
+       select id into agent_id from sav_ai_crm.ai_agents where workspace_id=ex.workspace_id and slug=n.config->>'agent_slug' and status='active' limit 1;
+     end if;
+     capability:=coalesce(n.config->>'action','CREATE_TASK');
+     target_type:=coalesce(n.config->>'target_type','lead');
+     if n.config->>'target_id_path' is not null then target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(n.config->>'target_id_path','.'))::text),'null')::uuid;
+     else target_id:=nullif(n.config->>'target_id','')::uuid; end if;
+     if agent_id is null then raise exception 'AI_AGENT node requires agent_id'; end if;
+     action_result:=public.sav_ai_crm_request_agent_action(agent_id,capability,target_type,target_id,coalesce(n.config->'payload','{}'::jsonb));
+     if coalesce((action_result->>'approval_required')::boolean,false) then
+       insert into sav_ai_crm.workflow_approvals(workspace_id,workflow_id,execution_id,node_id,approver_role,requested_by,approval_reason,risk_level,status,metadata)
+       values(ex.workspace_id,ex.workflow_id,ex.id,n.id,'manager',me.id,'AI action requires human approval',coalesce(action_result->>'risk_level','high'),'pending',
+         jsonb_build_object('agent_action_id',action_result->>'action_id'))
+       returning id into approval_id;
+       next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,null);
+       update sav_ai_crm.workflow_node_executions set status='waiting_approval',approval_required=true,risk_level=action_result->>'risk_level',output=jsonb_build_object('agent_action',action_result,'approval_id',approval_id),completed_at=now()
+         where execution_id=ex.id and node_execution_id=node_exec_id;
+       update sav_ai_crm.workflow_executions set current_node_id=next_id,execution_state='waiting_approval',depth=depth+1,updated_at=now() where id=ex.id;
+       return jsonb_build_object('id',ex.id,'status','waiting_approval','approval_id',approval_id);
+     else
+       action_result:=public.sav_ai_crm_execute_agent_action((action_result->>'action_id')::uuid);
+       update sav_ai_crm.workflow_node_executions set status='completed',output=action_result,completed_at=now()
+         where execution_id=ex.id and node_execution_id=node_exec_id;
+       next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,null);
+     end if;
+
+   elsif n.node_type='ACTION' then
+     if n.config->>'action' in ('CREATE_TASK','CREATE_FOLLOWUP') then
+       target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(coalesce(n.config->>'lead_id_path','lead.id'),'.'))::text),'null')::uuid;
+       if target_id is not null and not exists(select 1 from sav_ai_crm.leads where id=target_id and workspace_id=ex.workspace_id) then raise exception 'Lead is outside this workspace'; end if;
+       agent_id:=nullif(n.config->>'assigned_agent_id','')::uuid;
+       if agent_id is not null and not exists(select 1 from sav_ai_crm.ai_agents where id=agent_id and workspace_id=ex.workspace_id and status='active') then raise exception 'Assigned agent is invalid'; end if;
+       insert into sav_ai_crm.tasks(workspace_id,lead_id,title,description,task_type,followup_type,status,priority,due_at,assigned_agent_id,created_by,notes)
+       values(ex.workspace_id,target_id,coalesce(n.config->>'title','Workflow task'),n.config->>'description','followup',
+         case when n.config->>'action'='CREATE_FOLLOWUP' then coalesce(n.config->>'followup_type','general') else 'general' end,
+         'pending',coalesce(n.config->>'priority','medium'),
+         case when n.config->>'due_in_seconds' is not null then now()+make_interval(secs=>(n.config->>'due_in_seconds')::integer) else null end,
+         agent_id,me.id,'Created by: Workflow — '||w.name) returning id into task_id;
+       insert into sav_ai_crm.activities(workspace_id,lead_id,task_id,activity_type,title,description,metadata)
+       values(ex.workspace_id,target_id,task_id,case when n.config->>'action'='CREATE_FOLLOWUP' then 'workflow_followup_created' else 'workflow_task_created' end,
+         'Workflow action created task',coalesce(n.config->>'title','Workflow task'),jsonb_build_object('workflow_id',w.id,'execution_id',ex.id,'node_id',n.id));
+     elsif n.config->>'action' in ('UPDATE_TASK','ASSIGN_TASK') then
+       target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(coalesce(n.config->>'task_id_path','task.id'),'.'))::text),'null')::uuid;
+       if target_id is null or not exists(select 1 from sav_ai_crm.tasks where id=target_id and workspace_id=ex.workspace_id and archived_at is null) then raise exception 'Task is outside this workspace'; end if;
+       if n.config->>'action'='UPDATE_TASK' then
+         update sav_ai_crm.tasks set
+           status=coalesce(n.config->'values'->>'status',status),
+           priority=coalesce(n.config->'values'->>'priority',priority),
+           updated_at=now()
+         where id=target_id and workspace_id=ex.workspace_id;
+       else
+         if nullif(n.config->>'assigned_to','') is not null and nullif(n.config->>'assigned_agent_id','') is not null then raise exception 'Task can be assigned to a human or AI agent, not both'; end if;
+         if nullif(n.config->>'assigned_to','') is not null and not exists(select 1 from sav_ai_crm.members where id=(n.config->>'assigned_to')::uuid and workspace_id=ex.workspace_id and is_active) then raise exception 'Human task assignee is invalid'; end if;
+         if nullif(n.config->>'assigned_agent_id','') is not null and not exists(select 1 from sav_ai_crm.ai_agents where id=(n.config->>'assigned_agent_id')::uuid and workspace_id=ex.workspace_id and status='active') then raise exception 'AI task assignee is invalid'; end if;
+         update sav_ai_crm.tasks set assigned_to=nullif(n.config->>'assigned_to','')::uuid,
+           assigned_agent_id=nullif(n.config->>'assigned_agent_id','')::uuid,updated_at=now()
+         where id=target_id and workspace_id=ex.workspace_id;
+       end if;
+       insert into sav_ai_crm.activities(workspace_id,task_id,actor_member_id,activity_type,title,description,metadata)
+       values(ex.workspace_id,target_id,me.id,'workflow_task_updated','Workflow updated task',w.name,jsonb_build_object('workflow_id',w.id,'execution_id',ex.id,'node_id',n.id,'action',n.config->>'action'));
+     elsif n.config->>'action'='ASSIGN_AGENT' then
+       agent_id:=nullif(n.config->>'agent_id','')::uuid;
+       if agent_id is null or not exists(select 1 from sav_ai_crm.ai_agents where id=agent_id and workspace_id=ex.workspace_id and status='active') then raise exception 'Agent assignment is invalid'; end if;
+       update sav_ai_crm.workflow_executions set context=jsonb_set(context,'{assigned_agent_id}',to_jsonb(agent_id::text),true),updated_at=now() where id=ex.id;
+     elsif n.config->>'action'='CREATE_ESCALATION' then
+       agent_id:=nullif(n.config->>'agent_id','')::uuid;
+       if agent_id is null and nullif(n.config->>'agent_slug','') is not null then select id into agent_id from sav_ai_crm.ai_agents where workspace_id=ex.workspace_id and slug=n.config->>'agent_slug' limit 1; end if;
+       if agent_id is null then raise exception 'Escalation action requires agent'; end if;
+       target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(coalesce(n.config->>'lead_id_path','lead.id'),'.'))::text),'null')::uuid;
+       insert into sav_ai_crm.ai_agent_escalations(workspace_id,agent_id,lead_id,workflow_id,workflow_execution_id,reason,status,details)
+       values(ex.workspace_id,agent_id,target_id,w.id,ex.id,coalesce(n.config->>'reason','FAILED_ACTION'),'open',n.config->>'details');
+     elsif n.config->>'action'='REQUEST_APPROVAL' then
+       insert into sav_ai_crm.workflow_approvals(workspace_id,workflow_id,execution_id,node_id,approver_role,approver_user_id,requested_by,approval_reason,risk_level,status)
+       values(ex.workspace_id,ex.workflow_id,ex.id,n.id,n.config->>'approver_role',nullif(n.config->>'approver_user_id','')::uuid,me.id,
+         coalesce(n.config->>'reason','Workflow action approval required'),coalesce(n.config->>'risk_level','high'),'pending')
+       returning id into approval_id;
+       next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,'approved');
+       update sav_ai_crm.workflow_node_executions set status='waiting_approval',approval_required=true,risk_level=coalesce(n.config->>'risk_level','high'),output=jsonb_build_object('approval_id',approval_id),completed_at=now()
+         where execution_id=ex.id and node_execution_id=node_exec_id;
+       update sav_ai_crm.workflow_executions set current_node_id=next_id,execution_state='waiting_approval',depth=depth+1,updated_at=now() where id=ex.id;
+       return jsonb_build_object('id',ex.id,'status','waiting_approval','approval_id',approval_id);
+     elsif n.config->>'action'='WAIT' then
+       delay_seconds:=greatest(1,least(coalesce((n.config->>'delay_seconds')::integer,60),604800));
+       next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,null);
+       update sav_ai_crm.workflow_node_executions set status='waiting',output=jsonb_build_object('delay_seconds',delay_seconds),completed_at=now()
+         where execution_id=ex.id and node_execution_id=node_exec_id;
+       update sav_ai_crm.workflow_executions set current_node_id=next_id,execution_state='waiting',scheduled_for=now()+make_interval(secs=>delay_seconds),depth=depth+1,updated_at=now() where id=ex.id;
+       return jsonb_build_object('id',ex.id,'status','waiting','scheduled_for',now()+make_interval(secs=>delay_seconds));
+     elsif n.config->>'action'='UPDATE_LEAD' then
+       target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(coalesce(n.config->>'lead_id_path','lead.id'),'.'))::text),'null')::uuid;
+       if target_id is null or not exists(select 1 from sav_ai_crm.leads where id=target_id and workspace_id=ex.workspace_id) then raise exception 'Lead is outside this workspace'; end if;
+       update sav_ai_crm.leads set
+         status=coalesce(n.config->'values'->>'status',status),
+         priority=coalesce(n.config->'values'->>'priority',priority),
+         notes=case when n.config->'values'->>'note' is not null then concat_ws(E'\n',notes,'[Workflow '||w.name||'] '||(n.config->'values'->>'note')) else notes end,
+         updated_at=now()
+       where id=target_id and workspace_id=ex.workspace_id;
+       insert into sav_ai_crm.activities(workspace_id,lead_id,actor_member_id,activity_type,title,description,metadata)
+       values(ex.workspace_id,target_id,me.id,'workflow_lead_updated','Workflow updated lead',w.name,jsonb_build_object('workflow_id',w.id,'execution_id',ex.id,'node_id',n.id));
+       insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+       values(ex.workspace_id,auth.uid(),'workflow.lead.update','lead',target_id,jsonb_build_object('workflow_id',w.id,'execution_id',ex.id,'node_id',n.id));
+     elsif n.config->>'action'='ADD_NOTE' then
+       target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(coalesce(n.config->>'lead_id_path','lead.id'),'.'))::text),'null')::uuid;
+       update sav_ai_crm.leads set notes=concat_ws(E'\n',notes,'[Workflow '||w.name||'] '||coalesce(n.config->>'note','')),updated_at=now()
+       where id=target_id and workspace_id=ex.workspace_id;
+       if not found then raise exception 'Lead is outside this workspace'; end if;
+       insert into sav_ai_crm.activities(workspace_id,lead_id,actor_member_id,activity_type,title,description,metadata)
+       values(ex.workspace_id,target_id,me.id,'workflow_note_added','Workflow added note',coalesce(n.config->>'note',''),
+         jsonb_build_object('workflow_id',w.id,'execution_id',ex.id,'node_id',n.id));
+     elsif n.config->>'action'='END_WORKFLOW' then
+       update sav_ai_crm.workflow_node_executions set status='completed',output='{"ended":true}'::jsonb,completed_at=now() where execution_id=ex.id and node_execution_id=node_exec_id;
+       update sav_ai_crm.workflow_executions set current_node_id=null,execution_state='completed',depth=depth+1,completed_at=now(),updated_at=now() where id=ex.id;
+       update sav_ai_crm.workflows set success_count=success_count+1 where id=ex.workflow_id;
+       return jsonb_build_object('id',ex.id,'status','completed');
+     else
+       raise exception 'WORKFLOW_ACTION_ADAPTER_NOT_IMPLEMENTED';
+     end if;
+     insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+     values(ex.workspace_id,auth.uid(),'workflow.action.'||lower(coalesce(n.config->>'action','unknown')),'workflow_execution',ex.id,
+       jsonb_build_object('workflow_id',w.id,'node_id',n.id,'target_id',target_id,'task_id',task_id));
+     update sav_ai_crm.workflow_node_executions set status='completed',output=jsonb_build_object('action',n.config->>'action','task_id',task_id,'target_id',target_id),completed_at=now()
+       where execution_id=ex.id and node_execution_id=node_exec_id;
+     next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,null);
+
+   elsif n.node_type='ESCALATION' then
+     agent_id:=nullif(n.config->>'agent_id','')::uuid;
+     if agent_id is null and nullif(n.config->>'agent_slug','') is not null then
+       select id into agent_id from sav_ai_crm.ai_agents where workspace_id=ex.workspace_id and slug=n.config->>'agent_slug' limit 1;
+     end if;
+     if agent_id is null or not exists(select 1 from sav_ai_crm.ai_agents where id=agent_id and workspace_id=ex.workspace_id) then raise exception 'Escalation requires a valid agent'; end if;
+     target_id:=nullif(trim(both '"' from (ex.context #> string_to_array(coalesce(n.config->>'lead_id_path','lead.id'),'.'))::text),'null')::uuid;
+     insert into sav_ai_crm.ai_agent_escalations(workspace_id,agent_id,lead_id,execution_id,workflow_id,workflow_execution_id,reason,status,details)
+     values(ex.workspace_id,agent_id,target_id,null,w.id,ex.id,coalesce(n.config->>'reason','FAILED_ACTION'),'open',coalesce(n.config->>'details','Workflow escalation: '||w.name));
+     update sav_ai_crm.workflow_node_executions set status='completed',output='{"escalated":true}'::jsonb,completed_at=now()
+       where execution_id=ex.id and node_execution_id=node_exec_id;
+     next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,null);
+
+   elsif n.node_type='NOTIFICATION' then
+     target_id:=sav_ai_crm.workflow_create_notification(ex.id,n.id);
+     update sav_ai_crm.workflow_node_executions set status='completed',output=jsonb_build_object('notification_id',target_id),completed_at=now()
+       where execution_id=ex.id and node_execution_id=node_exec_id;
+     next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,null);
+
+   else
+     update sav_ai_crm.workflow_node_executions set status='completed',output='{}'::jsonb,completed_at=now()
+       where execution_id=ex.id and node_execution_id=node_exec_id;
+     next_id:=sav_ai_crm.workflow_next_node(ex.workflow_id,ex.workflow_version,n.node_key,null);
+   end if;
+
+   update sav_ai_crm.workflow_executions set current_node_id=next_id,depth=depth+1,updated_at=now() where id=ex.id;
+ end loop;
+exception when others then
+ update sav_ai_crm.workflow_node_executions
+ set status=case when retry_count+1>max_retries then 'failed' else 'retrying' end,
+     retry_count=retry_count+1,last_error=sqlerrm,completed_at=case when retry_count+1>max_retries then now() else completed_at end
+ where execution_id=p_execution_id and status='running';
+ update sav_ai_crm.workflow_executions set execution_state='failed',retry_count=retry_count+1,error=sqlerrm,updated_at=now(),
+   completed_at=case when retry_count+1>max_retries then now() else completed_at end
+ where id=p_execution_id;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ select workspace_id,auth.uid(),'workflow.execute.failed','workflow_execution',id,jsonb_build_object('error',sqlerrm) from sav_ai_crm.workflow_executions where id=p_execution_id;
+ return jsonb_build_object('id',p_execution_id,'status','failed','error',sqlerrm);
+end $;
+
+
 
 -- Authenticated API grants / anonymous revocation.
 revoke all on function public.sav_ai_crm_notification_context() from public,anon;
