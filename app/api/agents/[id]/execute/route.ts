@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getAIProvider } from "../../../../../lib/ai/provider";
-import { bearerPresent,jsonError,serverSupabase } from "../../../../../lib/ai/server-supabase";
+import { bearerPresent,jsonError,serverSupabase,supabaseConfigured } from "../../../../../lib/ai/server-supabase";
 
 function isDatabaseNotReady(error:{code?:string|null;message?:string|null}|null|undefined){
  const message=error?.message||"";
@@ -17,6 +17,7 @@ function databaseNotReady(message:string){
 
 export async function POST(req:NextRequest,{params}:{params:Promise<{id:string}>}){
  if(!bearerPresent(req)) return jsonError("Authentication required",401,"UNAUTHORIZED");
+ if(!supabaseConfigured()) return jsonError("Supabase environment is not configured.",503,"DATABASE_NOT_READY");
  const {id}=await params;
  const body=await req.json().catch(()=>null) as null|{command?:string;context?:Record<string,unknown>};
  if(!body?.command?.trim()) return jsonError("command is required",422,"VALIDATION_ERROR");
