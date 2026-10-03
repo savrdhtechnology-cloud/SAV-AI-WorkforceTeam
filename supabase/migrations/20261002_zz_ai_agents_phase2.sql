@@ -163,7 +163,7 @@ $$;
 create or replace function sav_ai_crm.agent_runtime_id()
 returns uuid language plpgsql stable security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare raw text;
 begin
  raw:=nullif(auth.jwt()->'app_metadata'->>'sav_ai_agent_id','');
@@ -171,7 +171,7 @@ begin
  return raw::uuid;
 exception when invalid_text_representation then
  return null;
-end $;
+end $$;
 
 revoke all on function sav_ai_crm.agent_runtime_id() from public,anon;
 grant execute on function sav_ai_crm.agent_runtime_id() to authenticated;
@@ -415,7 +415,7 @@ create or replace function public.sav_ai_crm_create_agent(
  p_name text,p_slug text,p_role_name text,p_description text default null
 ) returns uuid language plpgsql security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members; aid uuid;
 begin
  me:=sav_ai_crm.agent_current_member();
@@ -645,7 +645,7 @@ create or replace function public.sav_ai_crm_complete_agent_execution(
  p_execution_id uuid,p_planned_action jsonb,p_output jsonb default null,p_approval_status text default 'not_required'
 ) returns void language plpgsql security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members;
 begin
  me:=sav_ai_crm.agent_current_member();
@@ -656,7 +656,7 @@ begin
    output=coalesce(p_output,'{}'),started_at=coalesce(started_at,now()),completed_at=now()
  where id=p_execution_id and workspace_id=me.workspace_id;
  if not found then raise exception 'Execution not found'; end if;
-end $;
+end $$;
 
 create or replace function public.sav_ai_crm_fail_agent_execution(p_execution_id uuid,p_error text,p_output jsonb default null)
 returns void language plpgsql security definer
@@ -712,12 +712,12 @@ commit;
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id)
  values(me.workspace_id,auth.uid(),'agent.create','ai_agent',aid);
  return aid;
-end $;
+end $$;
 
 create or replace function public.sav_ai_crm_agent_executions(p_agent_id uuid)
 returns jsonb language plpgsql stable security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members;
 begin
  me:=sav_ai_crm.agent_current_member();
@@ -727,7 +727,7 @@ begin
    select jsonb_agg(to_jsonb(x) order by x.created_at desc)
    from (select * from sav_ai_crm.ai_agent_executions where workspace_id=me.workspace_id and agent_id=p_agent_id order by created_at desc limit 100) x
  ),'[]'::jsonb);
-end $;
+end $$;
 
 create or replace function public.sav_ai_crm_update_agent(
  p_agent_id uuid,p_display_name text,p_description text,p_channels text[],p_confidence_threshold numeric,
