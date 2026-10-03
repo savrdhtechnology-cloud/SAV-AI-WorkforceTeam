@@ -243,11 +243,11 @@ as $$ select p_role in ('owner','admin','manager'); $$;
 
 create or replace function sav_ai_crm.inbox_can_write(p_role text)
 returns boolean language sql immutable
-as $ select p_role in ('owner','admin','manager','sales','support','operations'); $;
+as $$ select p_role in ('owner','admin','manager','sales','support','operations'); $$;
 
 create or replace function sav_ai_crm.inbox_can_access(p_role text,p_member_id uuid,p_assigned_to uuid)
 returns boolean language sql immutable
-as $ select p_role in ('owner','admin','manager','viewer') or p_assigned_to is null or p_assigned_to=p_member_id; $;
+as $$ select p_role in ('owner','admin','manager','viewer') or p_assigned_to is null or p_assigned_to=p_member_id; $$;
 
 revoke all on function sav_ai_crm.inbox_current_member() from public,anon;
 grant execute on function sav_ai_crm.inbox_current_member() to authenticated;
@@ -600,7 +600,7 @@ end $$;
 create or replace function public.sav_ai_crm_queue_approved_agent_message(p_action_id uuid)
 returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members; act sav_ai_crm.ai_agent_actions; agent sav_ai_crm.ai_agents; c sav_ai_crm.conversations; account sav_ai_crm.channel_accounts; mid uuid; existing_mid uuid;
 begin
  me:=sav_ai_crm.inbox_current_member();
@@ -639,11 +639,11 @@ begin
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
  values(me.workspace_id,auth.uid(),'inbox.ai.message.queued','message',mid,jsonb_build_object('agent_id',agent.id,'agent_action_id',act.id));
  return jsonb_build_object('message_id',mid,'agent_action_id',act.id,'already_queued',false);
-end $;
+end $$;
 create or replace function public.sav_ai_crm_finalize_agent_message_action(p_action_id uuid,p_message_id uuid,p_ok boolean,p_error text default null)
 returns void language plpgsql security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members; act sav_ai_crm.ai_agent_actions; m sav_ai_crm.messages;
 begin
  me:=sav_ai_crm.inbox_current_member();
@@ -657,7 +657,7 @@ begin
    completed_at=now(),updated_at=now() where id=act.id;
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
  values(me.workspace_id,auth.uid(),case when p_ok then 'inbox.ai.message.completed' else 'inbox.ai.message.failed' end,'ai_agent_action',act.id,jsonb_build_object('message_id',m.id,'status',m.delivery_status));
-end $;
+end $$;
 create or replace function public.sav_ai_crm_mark_message_sending(p_message_id uuid)
 returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
@@ -922,7 +922,7 @@ end $$;
 create or replace function public.sav_ai_crm_ai_draft_context(p_message_id uuid,p_agent_id uuid,p_instruction text default null)
 returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members; m sav_ai_crm.messages; c sav_ai_crm.conversations; agent sav_ai_crm.ai_agents; permission jsonb;
 begin
  me:=sav_ai_crm.inbox_current_member();
@@ -948,7 +948,7 @@ begin
       select * from sav_ai_crm.messages where conversation_id=c.id and workspace_id=me.workspace_id and message_type<>'note' order by created_at desc limit 50
     ) x),'[]'::jsonb)
  );
-end $;
+end $$;
 -- ---------------------------------------------------------------------------
 -- Phase 3 workflow event extension; same engine, no second workflow system
 -- ---------------------------------------------------------------------------
@@ -963,7 +963,7 @@ create or replace function public.sav_ai_crm_create_workflow(
  p_name text,p_description text,p_trigger_type text,p_graph jsonb,p_template_id uuid default null
 ) returns uuid language plpgsql security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members; wid uuid; graph jsonb; new_workflow_id uuid;
 begin
  me:=sav_ai_crm.workflow_current_member();
@@ -989,12 +989,12 @@ begin
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
  values(wid,auth.uid(),'workflow.create','workflow',new_workflow_id,jsonb_build_object('trigger',p_trigger_type,'version',1));
  return new_workflow_id;
-end $;
+end $$;
 create or replace function public.sav_ai_crm_update_workflow(
  p_workflow_id uuid,p_name text,p_description text,p_trigger_type text,p_graph jsonb
 ) returns integer language plpgsql security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members; w sav_ai_crm.workflows; next_version integer;
 begin
  me:=sav_ai_crm.workflow_current_member();
@@ -1017,7 +1017,7 @@ begin
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
  values(me.workspace_id,auth.uid(),'workflow.update','workflow',w.id,jsonb_build_object('version',next_version));
  return next_version;
-end $;
+end $$;
 create or replace function public.sav_ai_crm_dispatch_workflow_event(p_event text,p_context jsonb,p_event_key text)
 returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
@@ -1051,7 +1051,7 @@ end $$;
 create or replace function public.sav_ai_crm_channel_accounts()
 returns jsonb language plpgsql stable security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members;
 begin
  me:=sav_ai_crm.inbox_current_member();
@@ -1061,13 +1061,13 @@ begin
    'sender_identity',a.sender_identity,'status',a.status,'public_config',a.public_config,'has_secret_ref',a.secret_ref is not null,
    'created_at',a.created_at,'updated_at',a.updated_at
  ) order by a.channel,a.display_name) from sav_ai_crm.channel_accounts a where a.workspace_id=me.workspace_id),'[]'::jsonb);
-end $;
+end $$;
 create or replace function public.sav_ai_crm_upsert_channel_account(
  p_account_id uuid,p_channel text,p_provider text,p_display_name text,p_external_account_id text default null,
  p_sender_identity text default null,p_status text default 'disconnected',p_public_config jsonb default '{}'::jsonb,p_secret_ref text default null
 ) returns uuid language plpgsql security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members; aid uuid;
 begin
  me:=sav_ai_crm.inbox_current_member();
@@ -1090,11 +1090,11 @@ begin
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
  values(me.workspace_id,auth.uid(),'inbox.channel.configure','channel_account',aid,jsonb_build_object('channel',p_channel,'provider',p_provider,'status',p_status));
  return aid;
-end $;
+end $$;
 create or replace function sav_ai_crm.dispatch_workflow_event_system(p_workspace_id uuid,p_event text,p_context jsonb,p_event_key text)
 returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare tr record; results jsonb:='[]'::jsonb; eid uuid; run_result jsonb; idem text;
 begin
  if p_event not in (
@@ -1126,7 +1126,7 @@ begin
    end if;
  end loop;
  return results;
-end $;
+end $$;
 revoke all on function sav_ai_crm.dispatch_workflow_event_system(uuid,text,jsonb,text) from public,anon,authenticated;
 grant execute on function sav_ai_crm.dispatch_workflow_event_system(uuid,text,jsonb,text) to service_role;
 
