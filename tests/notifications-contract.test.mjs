@@ -48,7 +48,7 @@ test("in-app notification center supports unread list, mark read/unread and mark
 
 test("notification dashboard exposes requested metrics, filters, recent and upcoming states",()=>{
  for(const label of ["Total","Unread","Read","Scheduled","Sent","Delivered","Failed","Cancelled","Approval","Recent Notifications","Upcoming"])assert.match(ui,new RegExp(label));
- for(const filter of ["All channels","All types","All status","All priority","All recipients","All AI agents","All workflows","Read + unread"])assert.match(ui,new RegExp(filter));
+ for(const filter of ["All channels","All types","All status","All priority","All recipients","All AI agents","All workflows","Read \\+ unread"])assert.match(ui,new RegExp(filter));
  assert.match(ui,/type="date"/);
 });
 
