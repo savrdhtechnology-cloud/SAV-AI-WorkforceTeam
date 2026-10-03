@@ -261,7 +261,7 @@ function defaultConfig(type:WorkflowNodeType,agents:any[]):Record<string,unknown
   if(type==="WAIT")return {delay_seconds:3600};
   if(type==="HUMAN_APPROVAL")return {approver_role:"manager",reason:"Workflow approval required",risk_level:"high",timeout_seconds:86400};
   if(type==="ESCALATION")return {agent_id:agents[0]?.id||"",lead_id_path:"lead.id",reason:"FAILED_ACTION",details:"Workflow escalation"};
-  if(type==="NOTIFICATION")return {channel:"email",body:"External provider required"};
+  if(type==="NOTIFICATION")return {channel:"in_app",notification_type:"WORKFLOW_STARTED",title:"Workflow notification",body:"Workflow notification",priority:"medium",recipient_member_id_path:"member.id",deep_link:"/crm/workflows"};
   if(type==="ACTION")return {action:"ADD_NOTE",lead_id_path:"lead.id",note:"Workflow note"};
   return {};
 }
