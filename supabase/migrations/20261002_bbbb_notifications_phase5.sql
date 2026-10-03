@@ -220,6 +220,20 @@ begin
  end loop;
 end $$;
 
+create or replace function sav_ai_crm.notification_category_for_type(p_type text)
+returns text language sql immutable as $
+ select case
+  when p_type in ('TASK_NOTIFICATION','TASK_REMINDER','OVERDUE_REMINDER') then 'task_reminders'
+  when p_type in ('FOLLOWUP_NOTIFICATION','FOLLOWUP_REMINDER') then 'followups'
+  when p_type like 'AI_%' then 'ai_alerts'
+  when p_type like 'WORKFLOW_%' then 'workflow_alerts'
+  when p_type in ('NEW_CONVERSATION','NEW_INBOUND_MESSAGE','MESSAGE_DELIVERY_UPDATE','CONVERSATION_ASSIGNMENT') then 'inbox_alerts'
+  when p_type in ('ESCALATION_NOTIFICATION','CONVERSATION_ESCALATION') then 'escalation_alerts'
+  when p_type='SECURITY_NOTIFICATION' then 'system_security'
+  else 'system_alerts' end
+$;
+revoke all on function sav_ai_crm.notification_category_for_type(text) from public,anon,authenticated;
+
 create or replace function public.sav_ai_crm_notification_context()
 returns jsonb language plpgsql stable security definer
 set search_path=public,sav_ai_crm
@@ -346,6 +360,11 @@ begin
  if p_conversation_id is not null and not exists(select 1 from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=me.workspace_id) then raise exception 'Conversation outside workspace'; end if;
  if p_task_id is not null and not exists(select 1 from sav_ai_crm.tasks where id=p_task_id and workspace_id=me.workspace_id) then raise exception 'Task outside workspace'; end if;
  if coalesce(trim(p_title),'')='' or coalesce(trim(p_body),'')='' then raise exception 'Notification title and body required'; end if;
+ if p_recipient_member_id is not null and p_notification_type<>'SECURITY_NOTIFICATION' and exists(
+   select 1 from sav_ai_crm.notification_preferences pref
+   where pref.workspace_id=me.workspace_id and pref.member_id=p_recipient_member_id
+     and pref.category=sav_ai_crm.notification_category_for_type(p_notification_type) and pref.enabled=false
+ ) then raise exception 'NOTIFICATION_DISABLED_BY_PREFERENCE'; end if;
 
  initial_status:=case when p_requires_approval then 'WAITING_APPROVAL' when p_scheduled_at is not null and p_scheduled_at>now() then 'SCHEDULED' else 'QUEUED' end;
  begin
@@ -746,6 +765,11 @@ begin
    order by case role when 'owner' then 0 when 'admin' then 1 else 2 end,created_at limit 1;
  end if;
  if recipient is null then raise exception 'No workspace notification recipient available'; end if;
+ if p_notification_type<>'SECURITY_NOTIFICATION' and exists(
+   select 1 from sav_ai_crm.notification_preferences pref
+   where pref.workspace_id=p_workspace_id and pref.member_id=recipient
+     and pref.category=sav_ai_crm.notification_category_for_type(p_notification_type) and pref.enabled=false
+ ) then return null; end if;
  begin
    insert into sav_ai_crm.notifications(workspace_id,recipient_member_id,notification_type,title,body,priority,channel,status,source_type,source_id,deep_link,conversation_id,metadata,idempotency_key)
    values(p_workspace_id,recipient,p_notification_type,p_title,p_body,p_priority,'in_app','DELIVERED',p_source_type,p_source_id,p_deep_link,p_conversation_id,coalesce(p_metadata,'{}'),p_idempotency_key)
