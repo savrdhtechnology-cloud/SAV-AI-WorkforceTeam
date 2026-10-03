@@ -653,6 +653,9 @@ begin
  if agent.status<>'active' then raise exception 'Agent is not active'; end if;
  insert into sav_ai_crm.ai_agent_executions(workspace_id,agent_id,requested_by,command,input,execution_status)
  values(me.workspace_id,agent.id,me.id,trim(p_command),coalesce(p_input,'{}'),'queued') returning id into eid;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ values(me.workspace_id,auth.uid(),'agent.execution.created','ai_agent_execution',eid,
+   jsonb_build_object('agent_id',agent.id,'command',trim(p_command),'lead_id',p_input->>'lead_id'));
  return eid;
 end $$;
 
@@ -671,7 +674,18 @@ begin
    output=coalesce(p_output,'{}'),started_at=coalesce(started_at,now()),completed_at=now()
  where id=p_execution_id and workspace_id=me.workspace_id;
  if not found then raise exception 'Execution not found'; end if;
-end $$;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ select me.workspace_id,auth.uid(),'agent.execution.completed','ai_agent_execution',e.id,
+   jsonb_build_object('agent_id',e.agent_id,'approval_status',p_approval_status)
+ from sav_ai_crm.ai_agent_executions e where e.id=p_execution_id and e.workspace_id=me.workspace_id;
+ insert into sav_ai_crm.activities(workspace_id,lead_id,actor_member_id,activity_type,title,description,channel,metadata)
+ select e.workspace_id,l.id,me.id,'agent_execution_completed','AI agent analysis completed',
+   'SAV AI generated an analysis/plan without external delivery.','crm',
+   jsonb_build_object('execution_id',e.id,'agent_id',e.agent_id)
+ from sav_ai_crm.ai_agent_executions e
+ join sav_ai_crm.leads l on l.id=nullif(e.input->>'lead_id','')::uuid and l.workspace_id=e.workspace_id
+ where e.id=p_execution_id and e.workspace_id=me.workspace_id;
+end $;
 
 create or replace function public.sav_ai_crm_fail_agent_execution(p_execution_id uuid,p_error text,p_output jsonb default null)
 returns void language plpgsql security definer
@@ -685,7 +699,17 @@ begin
    started_at=coalesce(started_at,now()),completed_at=now()
  where id=p_execution_id and workspace_id=me.workspace_id;
  if not found then raise exception 'Execution not found'; end if;
-end $$;
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
+ select me.workspace_id,auth.uid(),'agent.execution.failed','ai_agent_execution',e.id,
+   jsonb_build_object('agent_id',e.agent_id,'error',p_error)
+ from sav_ai_crm.ai_agent_executions e where e.id=p_execution_id and e.workspace_id=me.workspace_id;
+ insert into sav_ai_crm.activities(workspace_id,lead_id,actor_member_id,activity_type,title,description,channel,metadata)
+ select e.workspace_id,l.id,me.id,'agent_execution_failed','AI agent analysis failed',
+   p_error,'crm',jsonb_build_object('execution_id',e.id,'agent_id',e.agent_id)
+ from sav_ai_crm.ai_agent_executions e
+ join sav_ai_crm.leads l on l.id=nullif(e.input->>'lead_id','')::uuid and l.workspace_id=e.workspace_id
+ where e.id=p_execution_id and e.workspace_id=me.workspace_id;
+end $;
 
 create or replace function public.sav_ai_crm_agent_executions(p_agent_id uuid)
 returns jsonb language plpgsql stable security definer
