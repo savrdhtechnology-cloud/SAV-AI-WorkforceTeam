@@ -8,16 +8,10 @@ export function supabaseConfigured(){
   return Boolean(url&&key);
 }
 
-function configuredUrl(){
-  return url||"http://127.0.0.1:54321";
-}
-function configuredKey(){
-  return key||"missing-supabase-anon-key";
-}
-
 export function serverSupabase(req:NextRequest){
+  if (!supabaseConfigured()) throw new Error("Supabase environment is not configured");
   const authorization=req.headers.get("authorization") || "";
-  return createClient(configuredUrl(),configuredKey(),{
+  return createClient(url,key,{
     auth:{persistSession:false,autoRefreshToken:false},
     global:{headers: authorization ? {Authorization:authorization} : {}}
   });
@@ -34,5 +28,5 @@ export function bearerPresent(req:NextRequest){
 export function serverAdminSupabase(){
   const serviceKey=process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if(!serviceKey || !supabaseConfigured()) return null;
-  return createClient(configuredUrl(),serviceKey,{auth:{persistSession:false,autoRefreshToken:false}});
+  return createClient(url,serviceKey,{auth:{persistSession:false,autoRefreshToken:false}});
 }

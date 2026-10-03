@@ -27,7 +27,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { crmSupabase } from "./supabase-client";
+import { crmSupabase, crmSupabaseConfigured } from "./supabase-client";
 import TasksView from "./tasks/TasksView";
 import AgentsModule from "./agents/AgentsModule";
 import WorkflowsModule from "./workflows/WorkflowsModule";
@@ -85,6 +85,7 @@ export default function CRMPage() {
   const [leadStatus, setLeadStatus] = useState("");
 
   useEffect(() => {
+    if (!crmSupabaseConfigured) return;
     crmSupabase.auth.getSession().then(({ data }) => {
       const email = data.session?.user.email || "";
       setUserEmail(email);
@@ -193,6 +194,8 @@ export default function CRMPage() {
     const stages = ["new", "contacted", "qualified", "proposal", "negotiation"];
     return stages.map((stage) => ({ stage, items: leads.filter((l) => l.status === stage) }));
   }, [leads]);
+
+  if (!crmSupabaseConfigured) return <div className="crm-auth-page"><div className="crm-auth-card" role="alert"><h2>CRM configuration required</h2><p>Supabase environment is not configured for this deployment.</p></div></div>;
 
   if (!sessionReady) return <div className="crm-auth-page" />;
 

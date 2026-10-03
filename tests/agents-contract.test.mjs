@@ -157,11 +157,11 @@ test("runtime AI identity uses app_metadata and never user_metadata",()=>{
 });
 
 test("staging Supabase configuration never falls back to production",()=>{
-  assert.doesNotMatch(serverSupabase,/ldffgetuzoeupuhoaubn/);
-  assert.doesNotMatch(browserSupabase,/ldffgetuzoeupuhoaubn/);
+  assert.doesNotMatch(serverSupabase,/https?:\/\/|missing-supabase-anon-key/);
+  assert.doesNotMatch(browserSupabase,/https?:\/\/|missing-supabase-anon-key/);
   assert.match(serverSupabase,/supabaseConfigured/);
-  assert.match(serverSupabase,/127\.0\.0\.1:54321/);
-  assert.match(browserSupabase,/127\.0\.0\.1:54321/);
+  assert.match(serverSupabase,/throw new Error\("Supabase environment is not configured"\)/);
+  assert.match(browserSupabase,/throw new Error\("Supabase environment is not configured"\)/);
   assert.match(executeApi,/Supabase environment is not configured/);
   assert.match(executeApi,/DATABASE_NOT_READY/);
 });

@@ -100,7 +100,7 @@ test("staging gate documents explicit dependency order and production hard stop"
    assert.ok(next>cursor,"missing or out-of-order migration in staging guide: "+p);
    cursor=next;
  }
- assert.match(doc,/ldffgetuzoeupuhoaubn/);
+ assert.match(doc,/gsudlmrmrefqqodpdeug/);
  assert.match(doc,/Do not use a blanket `supabase db push`/);
  assert.match(doc,/DATABASE_NOT_READY/);
  assert.match(doc,/AI_PROVIDER_NOT_CONFIGURED/);

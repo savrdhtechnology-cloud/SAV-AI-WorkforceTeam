@@ -4,11 +4,13 @@
 
 This procedure verifies the SAVRDH AI CRM database chain without changing production.
 
-**Production project ref:** `ldffgetuzoeupuhoaubn`
+**Approved staging project ref:** `gsudlmrmrefqqodpdeug`
+
+Current verification uses Vercel Preview only. Do not run the app locally or execute the migration procedure below without separate authorization.
 
 Hard rules:
 
-- Never run these migration files against the production project above.
+- Never run these migration files against any production project.
 - Never create a billable Supabase branch without explicit approval.
 - Use either Supabase Local or an already-approved, non-production Supabase project.
 - Do not use a blanket `supabase db push` on the current migration directory. The legacy Phase 1–5 filenames are not lexically ordered by phase.
@@ -68,13 +70,13 @@ export STAGING_DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
 
 Use an already-approved development project and its direct database URL.
 
-Before running anything, verify the target manually. The target project ref **must not** be `ldffgetuzoeupuhoaubn`.
+Before running anything, verify the target manually. The target project ref **must** be `gsudlmrmrefqqodpdeug`.
 
 Recommended shell guard:
 
 ```bash
-if printf '%s' "$STAGING_DB_URL" | grep -q 'ldffgetuzoeupuhoaubn'; then
-  echo "REFUSING: production database detected"
+if ! printf '%s' "$STAGING_DB_URL" | grep -q 'gsudlmrmrefqqodpdeug'; then
+  echo "REFUSING: approved staging project not identified"
   exit 1
 fi
 ```
