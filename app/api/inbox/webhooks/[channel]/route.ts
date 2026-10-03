@@ -68,5 +68,19 @@ export async function POST(req:NextRequest,{params}:{params:Promise<{channel:str
     p_context:{conversation:{id:persisted.conversation_id,channel:normalized.channel},message:{id:persisted.message_id,provider_message_id:normalized.providerMessageId,direction:"inbound"}},
     p_event_key:`webhook:${normalized.providerEventId}:message`
   });
+  if(persisted?.conversation_created){
+    await workflow.rpc("create_notification_system",{
+      p_workspace_id:account.workspace_id,p_notification_type:"NEW_CONVERSATION",p_title:"New conversation",
+      p_body:"A new "+normalized.channel+" conversation was created.",p_priority:"medium",p_source_type:"inbox",p_source_id:persisted.conversation_id,
+      p_deep_link:"/crm/inbox?conversation="+persisted.conversation_id,p_conversation_id:persisted.conversation_id,p_recipient_member_id:null,
+      p_idempotency_key:"inbox-conversation:"+persisted.conversation_id,p_metadata:{channel:normalized.channel}
+    });
+  }
+  await workflow.rpc("create_notification_system",{
+    p_workspace_id:account.workspace_id,p_notification_type:"NEW_INBOUND_MESSAGE",p_title:"New inbound message",
+    p_body:(normalized.body||"New "+normalized.messageType+" message").slice(0,500),p_priority:"medium",p_source_type:"inbox",p_source_id:persisted.message_id,
+    p_deep_link:"/crm/inbox?conversation="+persisted.conversation_id,p_conversation_id:persisted.conversation_id,p_recipient_member_id:null,
+    p_idempotency_key:"inbox-message:"+persisted.message_id,p_metadata:{channel:normalized.channel,provider_message_id:normalized.providerMessageId}
+  });
   return Response.json({ok:true,conversation_id:persisted.conversation_id,message_id:persisted.message_id});
 }
