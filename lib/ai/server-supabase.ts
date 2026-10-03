@@ -1,12 +1,23 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ldffgetuzoeupuhoaubn.supabase.co";
-const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_KzdI4K0qLXgi3MhA5GXPhg_6f5vB8By";
+const url=process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()||"";
+const key=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim()||"";
+
+export function supabaseConfigured(){
+  return Boolean(url&&key);
+}
+
+function configuredUrl(){
+  return url||"http://127.0.0.1:54321";
+}
+function configuredKey(){
+  return key||"missing-supabase-anon-key";
+}
 
 export function serverSupabase(req:NextRequest){
   const authorization=req.headers.get("authorization") || "";
-  return createClient(url,key,{
+  return createClient(configuredUrl(),configuredKey(),{
     auth:{persistSession:false,autoRefreshToken:false},
     global:{headers: authorization ? {Authorization:authorization} : {}}
   });
@@ -20,9 +31,8 @@ export function bearerPresent(req:NextRequest){
   return /^Bearer\s+\S+$/i.test(req.headers.get("authorization")||"");
 }
 
-
 export function serverAdminSupabase(){
-  const serviceKey=process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if(!serviceKey) return null;
-  return createClient(url,serviceKey,{auth:{persistSession:false,autoRefreshToken:false}});
+  const serviceKey=process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if(!serviceKey || !supabaseConfigured()) return null;
+  return createClient(configuredUrl(),serviceKey,{auth:{persistSession:false,autoRefreshToken:false}});
 }
