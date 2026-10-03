@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Activity, Bot, CheckCircle2, CircleAlert, Loader2, Pause, Play, Save, Search, ShieldAlert, TestTube2 } from "lucide-react";
 import { crmSupabase } from "../supabase-client";
 import { AgentRecord } from "./agent-types";
-import { executeAgent, getAgent, listAgents, reviewAgentAction, setAgentStatus, updateAgent } from "./agent-service";
+import { AgentApiError, executeAgent, getAgent, listAgents, reviewAgentAction, setAgentStatus, updateAgent } from "./agent-service";
 
 const tabs=["Overview","Role & Instructions","Capabilities","Tasks","Channels","Knowledge","Workflows","Working Hours","Limits","Escalation","Activity","Audit"] as const;
 
@@ -61,7 +61,12 @@ export default function AgentsModule({focusedId}:{focusedId?:string}){
     if(!selected||!testInput.trim())return;
     setTestResult(null);setError("");
     try{setTestResult(await executeAgent(selected,testInput,{lead_id:leadId||null}));}
-    catch(e){setTestResult({error:"AI_PROVIDER_NOT_CONFIGURED",message:e instanceof Error?e.message:"Execution failed."});}
+    catch(e){
+      setTestResult({
+        error:e instanceof AgentApiError?e.code:"AGENT_EXECUTION_FAILED",
+        message:e instanceof Error?e.message:"Execution failed."
+      });
+    }
   }
   async function review(actionId:string,decision:"approve"|"reject"){
     setError("");setSuccess("");
