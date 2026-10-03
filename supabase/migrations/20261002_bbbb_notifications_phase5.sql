@@ -221,7 +221,7 @@ begin
 end $$;
 
 create or replace function sav_ai_crm.notification_category_for_type(p_type text)
-returns text language sql immutable as $
+returns text language sql immutable as $$
  select case
   when p_type in ('TASK_NOTIFICATION','TASK_REMINDER','OVERDUE_REMINDER') then 'task_reminders'
   when p_type in ('FOLLOWUP_NOTIFICATION','FOLLOWUP_REMINDER') then 'followups'
@@ -230,7 +230,7 @@ returns text language sql immutable as $
   when p_type in ('NEW_CONVERSATION','NEW_INBOUND_MESSAGE','MESSAGE_DELIVERY_UPDATE','CONVERSATION_ASSIGNMENT') then 'inbox_alerts'
   when p_type in ('ESCALATION_NOTIFICATION','CONVERSATION_ESCALATION') then 'escalation_alerts'
   when p_type='SECURITY_NOTIFICATION' then 'system_security'
-  else 'system_alerts' end $;
+  else 'system_alerts' end $$;
 revoke all on function sav_ai_crm.notification_category_for_type(text) from public,anon,authenticated;
 
 create or replace function public.sav_ai_crm_notification_context()
@@ -394,7 +394,7 @@ create or replace function public.sav_ai_crm_update_notification(
  p_notification_id uuid,p_title text default null,p_body text default null,p_priority text default null,p_scheduled_at timestamptz default null,p_metadata jsonb default null
 ) returns void language plpgsql security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members; n sav_ai_crm.notifications;
 begin
  me:=sav_ai_crm.notification_current_member(); if me.id is null or not sav_ai_crm.notification_can_create(me.role) then raise exception 'Notification update not permitted'; end if;
@@ -411,11 +411,11 @@ begin
  where id=n.id;
  insert into sav_ai_crm.notification_events(workspace_id,notification_id,event_type,actor_member_id) values(me.workspace_id,n.id,'notification_updated',me.id);
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id) values(me.workspace_id,auth.uid(),'notification.updated','notification',n.id);
-end $;
+end $$;
 create or replace function public.sav_ai_crm_notification_due_ids(p_limit integer default 100)
 returns jsonb language plpgsql stable security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members;
 begin
  me:=sav_ai_crm.notification_current_member(); if me.id is null or me.role not in ('owner','admin','manager') then raise exception 'Notification worker access not permitted'; end if;
@@ -425,7 +425,7 @@ begin
     status='QUEUED' or (status='SCHEDULED' and scheduled_at<=now()) or (status='RETRYING' and next_attempt_at<=now())
   ) order by coalesce(next_attempt_at,scheduled_at,created_at) limit least(greatest(p_limit,1),500)
  )x),'[]'::jsonb);
-end $;
+end $$;
 create or replace function public.sav_ai_crm_notification_prepare_send(p_notification_id uuid)
 returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
@@ -491,7 +491,7 @@ begin
    status=case when p_read and channel='in_app' then 'READ' when not p_read and channel='in_app' and status='READ' then 'DELIVERED' else status end,updated_at=now() where id=n.id;
  insert into sav_ai_crm.notification_events(workspace_id,notification_id,event_type,actor_member_id) values(me.workspace_id,n.id,case when p_read then 'notification_read' else 'notification_unread' end,me.id);
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id) values(me.workspace_id,auth.uid(),case when p_read then 'notification.read' else 'notification.unread' end,'notification',n.id);
-end $;
+end $$;
 create or replace function public.sav_ai_crm_notifications_mark_all_read()
 returns integer language plpgsql security definer
 set search_path=public,sav_ai_crm
@@ -538,7 +538,7 @@ begin
  insert into sav_ai_crm.notification_deliveries(workspace_id,notification_id,channel,status,attempt_number) values(me.workspace_id,n.id,n.channel,'QUEUED',next_attempt);
  insert into sav_ai_crm.notification_events(workspace_id,notification_id,event_type,actor_member_id,details) values(me.workspace_id,n.id,'notification_retried',me.id,jsonb_build_object('attempt',next_attempt));
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata) values(me.workspace_id,auth.uid(),'notification.retried','notification',n.id,jsonb_build_object('attempt',next_attempt));
-end $;
+end $$;
 create or replace function public.sav_ai_crm_notification_preferences()
 returns jsonb language plpgsql stable security definer set search_path=public,sav_ai_crm
 as $$
@@ -614,14 +614,14 @@ revoke all on function sav_ai_crm.render_notification_template(text,jsonb) from 
 
 create or replace function public.sav_ai_crm_audit_notification_channel_change(p_channel text,p_account_id uuid)
 returns void language plpgsql security definer set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members;
 begin
  me:=sav_ai_crm.notification_current_member(); if me.id is null or me.role not in ('owner','admin') then raise exception 'Channel audit requires owner or admin'; end if;
  if p_channel not in ('email','whatsapp','sms','push','webhook','in_app') then raise exception 'Invalid notification channel'; end if;
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
  values(me.workspace_id,auth.uid(),'notification.channel.changed','channel_account',p_account_id,jsonb_build_object('channel',p_channel));
-end $;
+end $$;
 create or replace function public.sav_ai_crm_notification_schedules()
 returns jsonb language plpgsql stable security definer set search_path=public,sav_ai_crm
 as $$
@@ -689,7 +689,7 @@ end $$;
 create or replace function sav_ai_crm.sync_task_notification_trigger()
 returns trigger language plpgsql security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare recipient uuid; notify_at timestamptz; ntype text; nid uuid; current_status text;
 begin
  update sav_ai_crm.notifications set status='CANCELLED',updated_at=now()
@@ -725,7 +725,7 @@ begin
  insert into sav_ai_crm.notification_events(workspace_id,notification_id,event_type,details)
  values(new.workspace_id,nid,'task_notification_scheduled',jsonb_build_object('task_id',new.id,'scheduled_at',notify_at));
  return new;
-end $;
+end $$;
 drop trigger if exists trg_task_notification_sync on sav_ai_crm.tasks;
 create trigger trg_task_notification_sync
 after insert or update of due_at,reminder_at,assigned_to,assigned_agent_id,status,archived_at,followup_type
@@ -760,7 +760,7 @@ create or replace function sav_ai_crm.create_notification_system(
  p_deep_link text,p_conversation_id uuid,p_recipient_member_id uuid,p_idempotency_key text,p_metadata jsonb default '{}'::jsonb
 ) returns uuid language plpgsql security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare recipient uuid:=p_recipient_member_id; nid uuid;
 begin
  if not exists(select 1 from sav_ai_crm.workspaces where id=p_workspace_id) then raise exception 'Workspace not found'; end if;
@@ -794,7 +794,7 @@ begin
  insert into sav_ai_crm.audit_logs(workspace_id,action,entity_type,entity_id,metadata)
  values(p_workspace_id,'notification.system.created','notification',nid,jsonb_build_object('source_type',p_source_type));
  return nid;
-end $;
+end $$;
 revoke all on function sav_ai_crm.create_notification_system(uuid,text,text,text,text,text,uuid,text,uuid,uuid,text,jsonb) from public,anon,authenticated;
 grant execute on function sav_ai_crm.create_notification_system(uuid,text,text,text,text,text,uuid,text,uuid,uuid,text,jsonb) to service_role;
 
@@ -813,7 +813,7 @@ where not exists(select 1 from sav_ai_crm.ai_agent_capabilities c where c.agent_
 
 create or replace function public.sav_ai_crm_queue_approved_agent_notification(p_action_id uuid)
 returns uuid language plpgsql security definer set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members; act sav_ai_crm.ai_agent_actions; agent sav_ai_crm.ai_agents; nid uuid; recipient uuid; channel text;
 begin
  me:=sav_ai_crm.notification_current_member();
@@ -842,10 +842,10 @@ begin
  insert into sav_ai_crm.notification_events(workspace_id,notification_id,event_type,actor_agent_id,details)
  values(me.workspace_id,nid,'ai_notification_queued',agent.id,jsonb_build_object('agent_action_id',act.id));
  return nid;
-end $;
+end $$;
 create or replace function public.sav_ai_crm_finalize_agent_notification(p_action_id uuid,p_notification_id uuid,p_ok boolean,p_error text default null)
 returns void language plpgsql security definer set search_path=public,sav_ai_crm
-as $
+as $$
 declare me sav_ai_crm.members; act sav_ai_crm.ai_agent_actions; n sav_ai_crm.notifications;
 begin
  me:=sav_ai_crm.notification_current_member(); if me.id is null or not sav_ai_crm.notification_can_create(me.role) then raise exception 'AI notification finalization not permitted'; end if;
@@ -857,7 +857,7 @@ begin
    completed_at=now(),updated_at=now() where id=act.id;
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
  values(me.workspace_id,auth.uid(),case when p_ok then 'notification.ai.completed' else 'notification.ai.failed' end,'ai_agent_action',act.id,jsonb_build_object('notification_id',n.id));
-end $;
+end $$;
 -- Phase 3: replace notification placeholder with central Phase 5 notification creation.
 create or replace function sav_ai_crm.workflow_create_notification(p_execution_id uuid,p_node_id uuid)
 returns uuid language plpgsql security definer set search_path=public,sav_ai_crm
@@ -897,7 +897,7 @@ revoke all on function sav_ai_crm.workflow_create_notification(uuid,uuid) from p
 create or replace function public.sav_ai_crm_run_workflow_execution(p_execution_id uuid)
 returns jsonb language plpgsql security definer
 set search_path=public,sav_ai_crm
-as $
+as $$
 declare
  me sav_ai_crm.members; ex sav_ai_crm.workflow_executions; w sav_ai_crm.workflows; n sav_ai_crm.workflow_nodes;
  ne_id uuid; next_id uuid; branch_key text; node_exec_id text; task_id uuid; action_result jsonb;
@@ -1154,7 +1154,7 @@ exception when others then
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
  select workspace_id,auth.uid(),'workflow.execute.failed','workflow_execution',id,jsonb_build_object('error',sqlerrm) from sav_ai_crm.workflow_executions where id=p_execution_id;
  return jsonb_build_object('id',p_execution_id,'status','failed','error',sqlerrm);
-end $;
+end $$;
 -- Authenticated API grants / anonymous revocation.
 revoke all on function public.sav_ai_crm_notification_context() from public,anon;
 revoke all on function public.sav_ai_crm_notifications(text,text,text,text,text,uuid,text,uuid,uuid,text,timestamptz,timestamptz) from public,anon;
