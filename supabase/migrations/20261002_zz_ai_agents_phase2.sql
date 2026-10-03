@@ -20,6 +20,11 @@ alter table sav_ai_crm.ai_agents
   add column if not exists confidence_threshold numeric(5,4) not null default 0.7000;
 
 alter table sav_ai_crm.ai_agents drop constraint if exists ai_agents_status_check;
+
+update sav_ai_crm.ai_agents
+set status='disabled',updated_at=now()
+where status='draft';
+
 alter table sav_ai_crm.ai_agents add constraint ai_agents_status_check
   check (status in ('active','paused','disabled','error'));
 
@@ -644,18 +649,37 @@ create or replace function public.sav_ai_crm_create_agent_execution(p_agent_id u
 returns uuid language plpgsql security definer
 set search_path=public,sav_ai_crm
 as $$
-declare me sav_ai_crm.members; agent sav_ai_crm.ai_agents; eid uuid;
+declare
+ me sav_ai_crm.members;
+ agent sav_ai_crm.ai_agents;
+ eid uuid;
+ input_lead_id uuid;
 begin
  me:=sav_ai_crm.agent_current_member();
- if me.id is null then raise exception 'CRM membership required'; end if;
+ if me.id is null or me.role='viewer' then raise exception 'Agent execution permission required'; end if;
+ if nullif(trim(coalesce(p_command,'')),'') is null then raise exception 'Agent command is required'; end if;
+
  select * into agent from sav_ai_crm.ai_agents where id=p_agent_id and workspace_id=me.workspace_id;
  if agent.id is null then raise exception 'Agent not found'; end if;
  if agent.status<>'active' then raise exception 'Agent is not active'; end if;
+
+ if nullif(coalesce(p_input->>'lead_id',''),'') is not null then
+   begin
+     input_lead_id:=(p_input->>'lead_id')::uuid;
+   exception when invalid_text_representation then
+     raise exception 'Invalid lead_id';
+   end;
+   if not exists(select 1 from sav_ai_crm.leads where id=input_lead_id and workspace_id=me.workspace_id) then
+     raise exception 'Lead is outside this workspace';
+   end if;
+ end if;
+
  insert into sav_ai_crm.ai_agent_executions(workspace_id,agent_id,requested_by,command,input,execution_status)
  values(me.workspace_id,agent.id,me.id,trim(p_command),coalesce(p_input,'{}'),'queued') returning id into eid;
+
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
  values(me.workspace_id,auth.uid(),'agent.execution.created','ai_agent_execution',eid,
-   jsonb_build_object('agent_id',agent.id,'command',trim(p_command),'lead_id',p_input->>'lead_id'));
+   jsonb_build_object('agent_id',agent.id,'command',trim(p_command),'lead_id',input_lead_id));
  return eid;
 end $$;
 
@@ -664,52 +688,74 @@ create or replace function public.sav_ai_crm_complete_agent_execution(
 ) returns void language plpgsql security definer
 set search_path=public,sav_ai_crm
 as $$
-declare me sav_ai_crm.members;
+declare me sav_ai_crm.members; e sav_ai_crm.ai_agent_executions;
 begin
  me:=sav_ai_crm.agent_current_member();
- if me.id is null then raise exception 'CRM membership required'; end if;
+ if me.id is null or me.role='viewer' then raise exception 'Agent execution permission required'; end if;
  if p_approval_status not in ('not_required','pending','approved','rejected') then raise exception 'Invalid approval status'; end if;
+
+ select * into e from sav_ai_crm.ai_agent_executions
+ where id=p_execution_id and workspace_id=me.workspace_id for update;
+ if e.id is null then raise exception 'Execution not found'; end if;
+ if e.requested_by is distinct from me.id and not sav_ai_crm.agent_can_manage(me.role) then
+   raise exception 'Execution completion not permitted';
+ end if;
+ if e.execution_status not in ('queued','running','waiting_approval') then raise exception 'Execution is not completable'; end if;
+
  update sav_ai_crm.ai_agent_executions set
    planned_action=p_planned_action,approval_status=p_approval_status,execution_status='completed',
    output=coalesce(p_output,'{}'),started_at=coalesce(started_at,now()),completed_at=now()
- where id=p_execution_id and workspace_id=me.workspace_id;
- if not found then raise exception 'Execution not found'; end if;
+ where id=e.id;
+
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
- select me.workspace_id,auth.uid(),'agent.execution.completed','ai_agent_execution',e.id,
-   jsonb_build_object('agent_id',e.agent_id,'approval_status',p_approval_status)
- from sav_ai_crm.ai_agent_executions e where e.id=p_execution_id and e.workspace_id=me.workspace_id;
+ values(me.workspace_id,auth.uid(),'agent.execution.completed','ai_agent_execution',e.id,
+   jsonb_build_object('agent_id',e.agent_id,'approval_status',p_approval_status));
+
  insert into sav_ai_crm.activities(workspace_id,lead_id,actor_member_id,activity_type,title,description,channel,metadata)
  select e.workspace_id,l.id,me.id,'agent_execution_completed','AI agent analysis completed',
    'SAV AI generated an analysis/plan without external delivery.','crm',
    jsonb_build_object('execution_id',e.id,'agent_id',e.agent_id)
- from sav_ai_crm.ai_agent_executions e
- join sav_ai_crm.leads l on l.id=nullif(e.input->>'lead_id','')::uuid and l.workspace_id=e.workspace_id
- where e.id=p_execution_id and e.workspace_id=me.workspace_id;
-end $;
+ from sav_ai_crm.leads l
+ where nullif(e.input->>'lead_id','') is not null
+   and l.id=(e.input->>'lead_id')::uuid
+   and l.workspace_id=e.workspace_id;
+end $$;
 
 create or replace function public.sav_ai_crm_fail_agent_execution(p_execution_id uuid,p_error text,p_output jsonb default null)
 returns void language plpgsql security definer
 set search_path=public,sav_ai_crm
 as $$
-declare me sav_ai_crm.members;
+declare me sav_ai_crm.members; e sav_ai_crm.ai_agent_executions;
 begin
  me:=sav_ai_crm.agent_current_member();
- if me.id is null then raise exception 'CRM membership required'; end if;
- update sav_ai_crm.ai_agent_executions set execution_status='failed',error=p_error,output=p_output,
+ if me.id is null or me.role='viewer' then raise exception 'Agent execution permission required'; end if;
+
+ select * into e from sav_ai_crm.ai_agent_executions
+ where id=p_execution_id and workspace_id=me.workspace_id for update;
+ if e.id is null then raise exception 'Execution not found'; end if;
+ if e.requested_by is distinct from me.id and not sav_ai_crm.agent_can_manage(me.role) then
+   raise exception 'Execution failure update not permitted';
+ end if;
+ if e.execution_status not in ('queued','running','waiting_approval') then raise exception 'Execution is not fail-able'; end if;
+
+ update sav_ai_crm.ai_agent_executions set
+   execution_status='failed',error=left(coalesce(p_error,'AI_PROVIDER_ERROR'),2000),output=p_output,
    started_at=coalesce(started_at,now()),completed_at=now()
- where id=p_execution_id and workspace_id=me.workspace_id;
- if not found then raise exception 'Execution not found'; end if;
+ where id=e.id;
+
  insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id,metadata)
- select me.workspace_id,auth.uid(),'agent.execution.failed','ai_agent_execution',e.id,
-   jsonb_build_object('agent_id',e.agent_id,'error',p_error)
- from sav_ai_crm.ai_agent_executions e where e.id=p_execution_id and e.workspace_id=me.workspace_id;
+ values(me.workspace_id,auth.uid(),'agent.execution.failed','ai_agent_execution',e.id,
+   jsonb_build_object('agent_id',e.agent_id,'error',left(coalesce(p_error,'AI_PROVIDER_ERROR'),500)));
+
  insert into sav_ai_crm.activities(workspace_id,lead_id,actor_member_id,activity_type,title,description,channel,metadata)
  select e.workspace_id,l.id,me.id,'agent_execution_failed','AI agent analysis failed',
-   p_error,'crm',jsonb_build_object('execution_id',e.id,'agent_id',e.agent_id)
- from sav_ai_crm.ai_agent_executions e
- join sav_ai_crm.leads l on l.id=nullif(e.input->>'lead_id','')::uuid and l.workspace_id=e.workspace_id
- where e.id=p_execution_id and e.workspace_id=me.workspace_id;
-end $;
+   left(coalesce(p_error,'AI_PROVIDER_ERROR'),2000),'crm',
+   jsonb_build_object('execution_id',e.id,'agent_id',e.agent_id)
+ from sav_ai_crm.leads l
+ where nullif(e.input->>'lead_id','') is not null
+   and l.id=(e.input->>'lead_id')::uuid
+   and l.workspace_id=e.workspace_id;
+end $$;
 
 create or replace function public.sav_ai_crm_agent_executions(p_agent_id uuid)
 returns jsonb language plpgsql stable security definer
