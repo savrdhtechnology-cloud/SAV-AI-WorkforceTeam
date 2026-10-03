@@ -421,7 +421,22 @@ begin
  me:=sav_ai_crm.agent_current_member();
  if me.id is null or not sav_ai_crm.agent_is_admin(me.role) then raise exception 'Agent creation requires owner or admin permission'; end if;
  if length(trim(coalesce(p_name,'')))<3 then raise exception 'Agent name is required'; end if;
- if p_slug !~ '^[a-z0-9]+(?:-[a-z0-9]+)*
+ if p_slug !~ '^[a-z0-9]+(?:-[a-z0-9]+)*$' then raise exception 'Invalid agent slug'; end if;
+ if exists(select 1 from sav_ai_crm.ai_agents where workspace_id=me.workspace_id and slug=p_slug) then raise exception 'Agent slug already exists'; end if;
+
+ insert into sav_ai_crm.ai_agents(
+   workspace_id,name,slug,role_name,description,status,channels,autonomy_level,approval_required,configuration,display_name
+ ) values(
+   me.workspace_id,trim(p_name),p_slug,trim(p_role_name),nullif(trim(coalesce(p_description,'')),''),
+   'disabled','{}','assisted',true,'{}',trim(p_name)
+ ) returning id into aid;
+
+ insert into sav_ai_crm.audit_logs(workspace_id,actor_user_id,action,entity_type,entity_id)
+ values(me.workspace_id,auth.uid(),'agent.create','ai_agent',aid);
+ return aid;
+end $$;
+
+create or replace function public.sav_ai_crm_update_agent(
  p_agent_id uuid,p_display_name text,p_description text,p_channels text[],p_confidence_threshold numeric,
  p_working_hours jsonb,p_daily_limits jsonb,p_escalation_rules jsonb
 ) returns void language plpgsql security definer
@@ -433,7 +448,7 @@ begin
  if me.id is null or not sav_ai_crm.agent_can_manage(me.role) then raise exception 'Agent management not permitted'; end if;
  if p_confidence_threshold<0 or p_confidence_threshold>1 then raise exception 'Confidence threshold must be between 0 and 1'; end if;
  update sav_ai_crm.ai_agents set
-   display_name=trim(p_display_name),description=nullif(trim(p_description),''),
+   display_name=trim(p_display_name),description=nullif(trim(coalesce(p_description,'')),''),
    channels=coalesce(p_channels,'{}'),confidence_threshold=p_confidence_threshold,
    working_hours=coalesce(p_working_hours,'{}'),daily_limits=coalesce(p_daily_limits,'{}'),
    escalation_rules=coalesce(p_escalation_rules,'{}'),updated_at=now()
