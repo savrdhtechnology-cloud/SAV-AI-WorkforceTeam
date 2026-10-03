@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
   BarChart3,
+  Bell,
   Bot,
   BriefcaseBusiness,
   CheckCircle2,
@@ -31,9 +32,11 @@ import TasksView from "./tasks/TasksView";
 import AgentsModule from "./agents/AgentsModule";
 import WorkflowsModule from "./workflows/WorkflowsModule";
 import InboxModule from "./inbox/InboxModule";
+import NotificationsModule from "./notifications/NotificationsModule";
+import NotificationBell from "./notifications/NotificationBell";
 import "./crm.css";
 
-type View = "dashboard" | "leads" | "pipeline" | "agents" | "workflows" | "inbox" | "tasks" | "integrations" | "settings";
+type View = "dashboard" | "leads" | "pipeline" | "agents" | "workflows" | "inbox" | "notifications" | "tasks" | "integrations" | "settings";
 
 type Lead = {
   id: string;
@@ -57,6 +60,7 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "agents", label: "AI Agents", icon: Bot },
   { id: "workflows", label: "Workflows", icon: Workflow },
   { id: "inbox", label: "Inbox", icon: Inbox },
+  { id: "notifications", label: "Notifications", icon: Bell },
   { id: "tasks", label: "Tasks", icon: ListTodo },
   { id: "integrations", label: "Integrations", icon: Network },
   { id: "settings", label: "Settings", icon: Settings },
@@ -253,6 +257,7 @@ export default function CRMPage() {
             <h1>{nav.find((x) => x.id === view)?.label}</h1>
           </div>
           <div className="crm-top-actions">
+            <NotificationBell />
             <button onClick={refreshAll}>{loading ? <Loader2 size={13} className="spin" /> : <Activity size={13} />} Refresh</button>
             {view === "leads" && <button className="primary" onClick={() => setLeadModal(true)}><Plus size={13} /> New Lead</button>}
           </div>
@@ -276,6 +281,7 @@ export default function CRMPage() {
               {view === "agents" && <AgentsModule />}
               {view === "workflows" && <WorkflowsModule />}
               {view === "inbox" && <InboxModule />}
+              {view === "notifications" && <NotificationsModule />}
               {view === "tasks" && <TasksView onChanged={refreshAll} />}
               {view === "integrations" && <IntegrationsView integrations={integrations} />}
               {view === "settings" && <SettingsView workspace={workspace} />}
