@@ -244,7 +244,7 @@ begin
  return jsonb_build_object(
   'member',jsonb_build_object('id',me.id,'role',me.role,'full_name',me.full_name,'email',me.email),
   'members',coalesce((select jsonb_agg(jsonb_build_object('id',m.id,'full_name',m.full_name,'email',m.email,'role',m.role) order by coalesce(m.full_name,m.email)) from sav_ai_crm.members m where m.workspace_id=me.workspace_id and m.is_active),'[]'::jsonb),
-  'agents',coalesce((select jsonb_agg(jsonb_build_object('id',a.id,'display_name',a.display_name,'name',a.name,'status',a.status,'capabilities',a.capabilities) order by a.display_name) from sav_ai_crm.ai_agents a where a.workspace_id=me.workspace_id),'[]'::jsonb),
+  'agents',coalesce((select jsonb_agg(jsonb_build_object('id',a.id,'display_name',a.display_name,'name',a.name,'status',a.status,'capabilities',coalesce((select jsonb_agg(c.capability order by c.capability) from sav_ai_crm.ai_agent_capabilities c where c.agent_id=a.id and c.is_enabled),'[]'::jsonb)) order by a.display_name) from sav_ai_crm.ai_agents a where a.workspace_id=me.workspace_id),'[]'::jsonb),
   'workflows',coalesce((select jsonb_agg(jsonb_build_object('id',w.id,'name',w.name,'status',w.status) order by w.name) from sav_ai_crm.workflows w where w.workspace_id=me.workspace_id and w.archived_at is null),'[]'::jsonb),
   'permissions',jsonb_build_object('manage',sav_ai_crm.notification_can_manage(me.role),'create',sav_ai_crm.notification_can_create(me.role),'templates',me.role in ('owner','admin'),'channels',me.role in ('owner','admin'),'read_only',me.role='viewer')
  );
