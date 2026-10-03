@@ -1,0 +1,1 @@
+import NotificationsRouteShell from "./NotificationsRouteShell";export default function NotificationsPage(){return <NotificationsRouteShell/>;}
