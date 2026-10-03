@@ -680,6 +680,44 @@ begin
  return jsonb_build_object('created',created);
 end $$;
 
+create or replace function sav_ai_crm.create_notification_system(
+ p_workspace_id uuid,p_notification_type text,p_title text,p_body text,p_priority text,p_source_type text,p_source_id uuid,
+ p_deep_link text,p_conversation_id uuid,p_recipient_member_id uuid,p_idempotency_key text,p_metadata jsonb default '{}'::jsonb
+) returns uuid language plpgsql security definer
+set search_path=public,sav_ai_crm
+as $
+declare recipient uuid:=p_recipient_member_id; nid uuid;
+begin
+ if not exists(select 1 from sav_ai_crm.workspaces where id=p_workspace_id) then raise exception 'Workspace not found'; end if;
+ if recipient is not null and not exists(select 1 from sav_ai_crm.members where id=recipient and workspace_id=p_workspace_id and is_active) then raise exception 'Recipient outside workspace'; end if;
+ if recipient is null and p_conversation_id is not null then
+   select assigned_to into recipient from sav_ai_crm.conversations where id=p_conversation_id and workspace_id=p_workspace_id;
+ end if;
+ if recipient is null then
+   select id into recipient from sav_ai_crm.members where workspace_id=p_workspace_id and is_active and role in ('owner','admin','manager')
+   order by case role when 'owner' then 0 when 'admin' then 1 else 2 end,created_at limit 1;
+ end if;
+ if recipient is null then raise exception 'No workspace notification recipient available'; end if;
+ begin
+   insert into sav_ai_crm.notifications(workspace_id,recipient_member_id,notification_type,title,body,priority,channel,status,source_type,source_id,deep_link,conversation_id,metadata,idempotency_key)
+   values(p_workspace_id,recipient,p_notification_type,p_title,p_body,p_priority,'in_app','DELIVERED',p_source_type,p_source_id,p_deep_link,p_conversation_id,coalesce(p_metadata,'{}'),p_idempotency_key)
+   returning id into nid;
+ exception when unique_violation then
+   select id into nid from sav_ai_crm.notifications where workspace_id=p_workspace_id and idempotency_key=p_idempotency_key;
+   return nid;
+ end;
+ insert into sav_ai_crm.notification_recipients(workspace_id,notification_id,member_id,channel) values(p_workspace_id,nid,recipient,'in_app');
+ insert into sav_ai_crm.notification_deliveries(workspace_id,notification_id,channel,status,provider,attempt_number,updated_at)
+ values(p_workspace_id,nid,'in_app','DELIVERED','internal',1,now());
+ insert into sav_ai_crm.notification_events(workspace_id,notification_id,event_type,details)
+ values(p_workspace_id,nid,'system_notification_created',jsonb_build_object('source_type',p_source_type,'source_id',p_source_id));
+ insert into sav_ai_crm.audit_logs(workspace_id,action,entity_type,entity_id,metadata)
+ values(p_workspace_id,'notification.system.created','notification',nid,jsonb_build_object('source_type',p_source_type));
+ return nid;
+end $;
+revoke all on function sav_ai_crm.create_notification_system(uuid,text,text,text,text,text,uuid,text,uuid,uuid,text,jsonb) from public,anon,authenticated;
+grant execute on function sav_ai_crm.create_notification_system(uuid,text,text,text,text,text,uuid,text,uuid,uuid,text,jsonb) to service_role;
+
 -- Phase 2: add a notification capability through existing agent authorization.
 alter table sav_ai_crm.ai_agent_capabilities drop constraint if exists ai_agent_capabilities_capability_check;
 alter table sav_ai_crm.ai_agent_capabilities add constraint ai_agent_capabilities_capability_check check(capability in (
