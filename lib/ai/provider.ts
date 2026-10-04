@@ -157,36 +157,56 @@ class OpenAIProvider implements AIProvider {
       const response=await this.client.responses.create({
         model:this.model,
         instructions:[
-          "You are SAV-Sales, a sales qualification and follow-up planning agent inside SAVRDH AI Workforce.",
-          "Analyze only the CRM information provided in the request.",
-          "Do not send messages, call anyone, change CRM data, trigger tools, or perform any external action.",
-          "Return a sales qualification plan with exactly the requested structured fields.",
-          "If information is missing, state that explicitly instead of inventing it.",
-          "The next best action and follow-up are recommendations for a human or approved workflow only."
+          "You are SAV-Sales, the Sales & Telecalling Executive inside SAVRDH AI Workforce.",
+          "Analyze only CRM data and knowledge explicitly provided in the request.",
+          "Never invent customer facts, product catalog entries, financial facts, approvals, or application status.",
+          "If no supported Savrdh product/service can be identified from supplied context, set recommended_product to null.",
+          "ANALYZE mode is read-only: propose actions but do not claim they were performed.",
+          "EXECUTION is performed later by deterministic CRM tools, not by the model.",
+          "Never propose marking a lead won, approving payments, changing financial records, deleting data, sending external messages, or bypassing approval.",
+          "Allowed proposed tools are updateLeadStatus, createTask, createFollowup, requestApproval.",
+          "For updateLeadStatus, allowed statuses are new, contacted, qualified, proposal, negotiation, nurture.",
+          "Return the exact structured JSON schema requested."
         ].join("\n"),
         input:JSON.stringify({command:input.command,context:input.context||{}}),
         text:{format:{
           type:"json_schema",
-          name:"sav_sales_qualification_plan",
+          name:"sav_sales_agent_decision",
           strict:true,
           schema:{
             type:"object",
             additionalProperties:false,
             properties:{
-              lead_requirement:{type:"string"},
-              qualification_status:{type:"string"},
-              missing_information:{type:"array",items:{type:"string"}},
-              next_best_action:{type:"string"},
-              recommended_follow_up:{type:"string"},
+              qualification:{type:"string",enum:["hot","warm","cold","unqualified"]},
+              summary:{type:"string"},
+              recommended_product:{type:["string","null"]},
+              next_action:{type:"string"},
+              follow_up_required:{type:"boolean"},
+              proposed_actions:{
+                type:"array",
+                maxItems:5,
+                items:{
+                  type:"object",
+                  additionalProperties:false,
+                  properties:{
+                    tool:{type:"string",enum:["updateLeadStatus","createTask","createFollowup","requestApproval"]},
+                    status:{type:["string","null"]},
+                    title:{type:["string","null"]},
+                    description:{type:["string","null"]},
+                    priority:{type:["string","null"]},
+                    due_at:{type:["string","null"]},
+                    reminder_at:{type:["string","null"]},
+                    followup_type:{type:["string","null"]},
+                    capability:{type:["string","null"]}
+                  },
+                  required:["tool","status","title","description","priority","due_at","reminder_at","followup_type","capability"]
+                }
+              },
               confidence:{type:"number",minimum:0,maximum:1}
             },
             required:[
-              "lead_requirement",
-              "qualification_status",
-              "missing_information",
-              "next_best_action",
-              "recommended_follow_up",
-              "confidence"
+              "qualification","summary","recommended_product","next_action",
+              "follow_up_required","proposed_actions","confidence"
             ]
           }
         }},
@@ -194,23 +214,25 @@ class OpenAIProvider implements AIProvider {
       });
 
       const parsed=parseJsonObject(response.output_text);
-      const missing=Array.isArray(parsed.missing_information)
-        ? parsed.missing_information.filter((value):value is string=>typeof value==="string")
-        : [];
+      const rawActions=Array.isArray(parsed.proposed_actions)?parsed.proposed_actions:[];
+      const proposedActions=rawActions
+        .filter((value)=>value&&typeof value==="object"&&!Array.isArray(value))
+        .map((value)=>value as Record<string,unknown>);
 
       const payload:Record<string,unknown>={
-        lead_requirement:String(parsed.lead_requirement||""),
-        qualification_status:String(parsed.qualification_status||""),
-        missing_information:missing,
-        next_best_action:String(parsed.next_best_action||""),
-        recommended_follow_up:String(parsed.recommended_follow_up||""),
+        qualification:String(parsed.qualification||"cold"),
+        summary:String(parsed.summary||""),
+        recommended_product:typeof parsed.recommended_product==="string"?parsed.recommended_product:null,
+        next_action:String(parsed.next_action||""),
+        follow_up_required:parsed.follow_up_required===true,
+        proposed_actions:proposedActions,
         external_action_performed:false
       };
 
       return {
         ok:true,
         data:{
-          action:"sales_qualification_plan",
+          action:"sav_sales_decision",
           payload,
           confidence:clampConfidence(parsed.confidence)
         },
