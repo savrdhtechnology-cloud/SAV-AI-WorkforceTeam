@@ -22,6 +22,7 @@ export default function AgentsModule({focusedId}:{focusedId?:string}){
   const [leadId,setLeadId]=useState("");
   const [leads,setLeads]=useState<any[]>([]);
   const [testResult,setTestResult]=useState<any>(null);
+  const [agentRunning,setAgentRunning]=useState(false);
 
   async function refresh(){
     setLoading(true);setError("");
@@ -57,16 +58,45 @@ export default function AgentsModule({focusedId}:{focusedId?:string}){
       setSuccess("Agent settings saved.");await refresh();
     }catch(e){setError(e instanceof Error?e.message:"Save failed.");}
   }
-  async function runTest(){
-    if(!selected||!testInput.trim())return;
-    setTestResult(null);setError("");
-    try{setTestResult(await executeAgent(selected,testInput,{lead_id:leadId||null}));}
-    catch(e){
+  async function runAnalyze(){
+    if(!selected||!leadId||!testInput.trim())return;
+    setTestResult(null);setError("");setAgentRunning(true);
+    try{
+      const result=await executeAgent(selected,testInput,{lead_id:leadId},{mode:"analyze"});
+      setTestResult(result);
+      const data=await listAgents();setMetrics(data.metrics);
+      setDetail(await getAgent(selected));
+    }catch(e){
       setTestResult({
         error:e instanceof AgentApiError?e.code:"AGENT_EXECUTION_FAILED",
         message:e instanceof Error?e.message:"Execution failed."
       });
-    }
+    }finally{setAgentRunning(false);}
+  }
+
+  async function runExecute(){
+    if(!selected||!leadId||!testResult?.result?.decision)return;
+    setError("");setAgentRunning(true);
+    try{
+      const result=await executeAgent(
+        selected,
+        "Execute validated SAV-Sales CRM actions from analyzed decision",
+        {lead_id:leadId},
+        {
+          mode:"execute",
+          decision:testResult.result.decision,
+          sourceExecutionId:testResult.execution_id
+        }
+      );
+      setTestResult(result);
+      const data=await listAgents();setMetrics(data.metrics);
+      setDetail(await getAgent(selected));
+    }catch(e){
+      setTestResult({
+        error:e instanceof AgentApiError?e.code:"AGENT_EXECUTION_FAILED",
+        message:e instanceof Error?e.message:"Execution failed."
+      });
+    }finally{setAgentRunning(false);}
   }
   async function review(actionId:string,decision:"approve"|"reject"){
     setError("");setSuccess("");
@@ -142,7 +172,15 @@ export default function AgentsModule({focusedId}:{focusedId?:string}){
             <div className="agent-console-head"><TestTube2 size={15}/><div><b>Agent Test Console</b><span>Analyze / Plan / Preview / Execute</span></div></div>
             <label>Context / Lead<select value={leadId} onChange={e=>setLeadId(e.target.value)}><option value="">No lead context</option>{leads.map(l=><option key={l.id} value={l.id}>{l.title}</option>)}</select></label>
             <label>Test input<textarea value={testInput} onChange={e=>setTestInput(e.target.value)} placeholder="Describe what the agent should analyze or plan..."/></label>
-            <button className="task-new-btn" onClick={runTest}><Activity size={13}/>Analyze & Plan</button>
+            <div className="agent-head-actions">
+              <button className="task-new-btn" onClick={runAnalyze} disabled={agentRunning||!leadId||!testInput.trim()}>
+                {agentRunning?<Loader2 size={13} className="spin"/>:<Activity size={13}/>}Analyze & Plan
+              </button>
+              {current.slug==="sav-sales"&&testResult?.mode==="analyze"&&testResult?.result?.decision&&
+                <button onClick={runExecute} disabled={agentRunning}>
+                  <Play size={13}/>Execute Approved Actions
+                </button>}
+            </div>
             {testResult&&<pre className="agent-console-result">{JSON.stringify(testResult,null,2)}</pre>}
           </div>
         </>}
