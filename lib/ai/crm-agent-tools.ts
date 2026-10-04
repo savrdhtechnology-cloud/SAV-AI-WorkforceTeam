@@ -37,6 +37,23 @@ export class CRMToolbox{
     private readonly agentId:string
   ){}
 
+  private async logTool(result:AgentToolResult,targetType:string|null,targetId:string|null){
+    await this.supabase.rpc("sav_ai_crm_log_agent_tool",{
+      p_agent_id:this.agentId,
+      p_tool:result.tool,
+      p_success:result.ok,
+      p_target_type:targetType,
+      p_target_id:targetId,
+      p_error:result.error||null,
+      p_metadata:{
+        action_id:result.action_id||null,
+        task_id:result.task_id||null,
+        approval_required:result.approval_required===true
+      }
+    });
+    return result;
+  }
+
   private async workspaceRole(){
     const {data,error}=await this.supabase.rpc("sav_ai_crm_workspace");
     if(error) throw new Error(error.message);
@@ -62,113 +79,142 @@ export class CRMToolbox{
   }
 
   async getLead(leadId:string):Promise<AgentToolResult>{
-    if(!/^[0-9a-f-]{36}$/i.test(leadId)) return {tool:"getLead",ok:false,error:"Invalid lead ID"};
+    if(!/^[0-9a-f-]{36}$/i.test(leadId)){
+      return this.logTool({tool:"getLead",ok:false,error:"Invalid lead ID"},"lead",null);
+    }
     const {data,error}=await this.supabase.rpc("sav_ai_crm_list_leads",{p_status:null,p_search:null});
-    if(error) return {tool:"getLead",ok:false,error:error.message};
+    if(error) return this.logTool({tool:"getLead",ok:false,error:error.message},"lead",leadId);
     const rows=Array.isArray(data)?data:[];
     const lead=rows.find((row)=>asObject(row).id===leadId);
-    if(!lead) return {tool:"getLead",ok:false,error:"Lead not found in workspace"};
-    return {tool:"getLead",ok:true,data:lead};
-  }
-
-  async updateLeadStatus(leadId:string,status:unknown):Promise<AgentToolResult>{
-    try{
-      await this.ensureWriteRole();
-      await this.ensureCapability("UPDATE_LEAD");
-      const next=nonEmptyString(status,32);
-      if(!next||!SAFE_LEAD_STATUSES.has(next)) {
-        return {tool:"updateLeadStatus",ok:false,error:"Lead status is not permitted for autonomous agent update"};
-      }
-      const {data,error}=await this.supabase.rpc("sav_ai_crm_update_lead_status",{p_lead_id:leadId,p_status:next});
-      if(error) return {tool:"updateLeadStatus",ok:false,error:error.message};
-      return {tool:"updateLeadStatus",ok:Boolean(data),data:{status:next}};
-    }catch(error){
-      return {tool:"updateLeadStatus",ok:false,error:error instanceof Error?error.message:"Lead update failed"};
-    }
+    if(!lead) return this.logTool({tool:"getLead",ok:false,error:"Lead not found in workspace"},"lead",leadId);
+    return this.logTool({tool:"getLead",ok:true,data:lead},"lead",leadId);
   }
 
   private async requestAndExecute(
-    tool:"createTask"|"createFollowup",
-    capability:"CREATE_TASK"|"CREATE_FOLLOWUP",
+    tool:AgentToolName,
+    capability:string,
     leadId:string,
-    rawPayload:unknown
+    payload:Record<string,unknown>
   ):Promise<AgentToolResult>{
     try{
       await this.ensureWriteRole();
       await this.ensureCapability(capability);
-      const payload=asObject(rawPayload);
-      const title=nonEmptyString(payload.title,160);
-      if(!title) return {tool,ok:false,error:"Task title is required"};
-      const priority=nonEmptyString(payload.priority,20)||"medium";
-      if(!["low","medium","high","urgent"].includes(priority)) return {tool,ok:false,error:"Invalid task priority"};
-      const dueAt=optionalIso(payload.due_at);
-      const reminderAt=optionalIso(payload.reminder_at);
-      const actionPayload={
-        title,
-        description:nonEmptyString(payload.description,1000),
-        priority,
-        due_at:dueAt,
-        reminder_at:reminderAt,
-        followup_type:tool==="createFollowup"?(nonEmptyString(payload.followup_type,40)||"general"):"general"
-      };
-
-      const {data,error}=await this.supabase.rpc("sav_ai_crm_request_agent_action",{
+      const requested=await this.supabase.rpc("sav_ai_crm_request_agent_action",{
         p_agent_id:this.agentId,
         p_action:capability,
         p_target_type:"lead",
         p_target_id:leadId,
-        p_payload:actionPayload
+        p_payload:payload
       });
-      if(error) return {tool,ok:false,error:error.message};
-      const requested=asObject(data);
-      const actionId=typeof requested.action_id==="string"?requested.action_id:undefined;
-      const approvalRequired=requested.approval_required===true;
-      if(!actionId) return {tool,ok:false,error:"Agent action request did not return an action ID"};
+      if(requested.error) return this.logTool({tool,ok:false,error:requested.error.message},"lead",leadId);
+      const requestData=asObject(requested.data);
+      const actionId=typeof requestData.action_id==="string"?requestData.action_id:undefined;
+      const approvalRequired=requestData.approval_required===true;
+      if(!actionId) return this.logTool({tool,ok:false,error:"Agent action request did not return an action ID"},"lead",leadId);
       if(approvalRequired){
-        return {tool,ok:true,action_id:actionId,approval_required:true,data:requested};
+        return this.logTool({
+          tool,ok:true,action_id:actionId,approval_required:true,data:requestData
+        },"lead",leadId);
       }
+
       const executed=await this.supabase.rpc("sav_ai_crm_execute_agent_action",{p_action_id:actionId});
-      if(executed.error) return {tool,ok:false,action_id:actionId,error:executed.error.message};
+      if(executed.error){
+        return this.logTool({tool,ok:false,action_id:actionId,error:executed.error.message},"lead",leadId);
+      }
       const result=asObject(executed.data);
-      return {
-        tool,ok:true,action_id:actionId,task_id:typeof result.task_id==="string"?result.task_id:null,
-        approval_required:false,data:result
-      };
+      return this.logTool({
+        tool,
+        ok:true,
+        action_id:actionId,
+        task_id:typeof result.task_id==="string"?result.task_id:null,
+        approval_required:false,
+        data:result
+      },"lead",leadId);
     }catch(error){
-      return {tool,ok:false,error:error instanceof Error?error.message:"Agent task action failed"};
+      return this.logTool({
+        tool,ok:false,error:error instanceof Error?error.message:"Agent action failed"
+      },"lead",leadId);
     }
   }
 
-  createTask(leadId:string,payload:unknown){
-    return this.requestAndExecute("createTask","CREATE_TASK",leadId,payload);
+  async updateLeadStatus(leadId:string,status:unknown):Promise<AgentToolResult>{
+    const next=nonEmptyString(status,32);
+    if(!next||!SAFE_LEAD_STATUSES.has(next)){
+      return this.logTool({
+        tool:"updateLeadStatus",ok:false,error:"Lead status is not permitted for autonomous agent update"
+      },"lead",leadId);
+    }
+    return this.requestAndExecute("updateLeadStatus","UPDATE_LEAD",leadId,{status:next});
   }
 
-  createFollowup(leadId:string,payload:unknown){
-    return this.requestAndExecute("createFollowup","CREATE_FOLLOWUP",leadId,payload);
+  async createTask(leadId:string,rawPayload:unknown):Promise<AgentToolResult>{
+    const payload=asObject(rawPayload);
+    const title=nonEmptyString(payload.title,160);
+    if(!title) return this.logTool({tool:"createTask",ok:false,error:"Task title is required"},"lead",leadId);
+    const priority=nonEmptyString(payload.priority,20)||"medium";
+    if(!["low","medium","high","urgent"].includes(priority)){
+      return this.logTool({tool:"createTask",ok:false,error:"Invalid task priority"},"lead",leadId);
+    }
+    try{
+      return this.requestAndExecute("createTask","CREATE_TASK",leadId,{
+        title,
+        description:nonEmptyString(payload.description,1000),
+        priority,
+        due_at:optionalIso(payload.due_at),
+        reminder_at:optionalIso(payload.reminder_at)
+      });
+    }catch(error){
+      return this.logTool({tool:"createTask",ok:false,error:error instanceof Error?error.message:"Task validation failed"},"lead",leadId);
+    }
   }
 
-  async requestApproval(action:string,leadId:string,payload:unknown):Promise<AgentToolResult>{
+  async createFollowup(leadId:string,rawPayload:unknown):Promise<AgentToolResult>{
+    const payload=asObject(rawPayload);
+    const title=nonEmptyString(payload.title,160)||"Sales follow-up";
+    const priority=nonEmptyString(payload.priority,20)||"medium";
+    if(!["low","medium","high","urgent"].includes(priority)){
+      return this.logTool({tool:"createFollowup",ok:false,error:"Invalid follow-up priority"},"lead",leadId);
+    }
+    try{
+      return this.requestAndExecute("createFollowup","CREATE_FOLLOWUP",leadId,{
+        title,
+        description:nonEmptyString(payload.description,1000),
+        priority,
+        due_at:optionalIso(payload.due_at),
+        reminder_at:optionalIso(payload.reminder_at),
+        followup_type:nonEmptyString(payload.followup_type,40)||"sales"
+      });
+    }catch(error){
+      return this.logTool({tool:"createFollowup",ok:false,error:error instanceof Error?error.message:"Follow-up validation failed"},"lead",leadId);
+    }
+  }
+
+  async requestApproval(capabilityValue:unknown,leadId:string,payloadValue:unknown):Promise<AgentToolResult>{
+    const capability=nonEmptyString(capabilityValue,64);
+    if(!capability) return this.logTool({tool:"requestApproval",ok:false,error:"Capability is required"},"lead",leadId);
     try{
       await this.ensureWriteRole();
-      const capability=nonEmptyString(action,64);
-      if(!capability) return {tool:"requestApproval",ok:false,error:"Capability is required"};
+      await this.ensureCapability(capability);
       const {data,error}=await this.supabase.rpc("sav_ai_crm_request_agent_action",{
         p_agent_id:this.agentId,
         p_action:capability,
         p_target_type:"lead",
         p_target_id:leadId,
-        p_payload:asObject(payload)
+        p_payload:asObject(payloadValue)
       });
-      if(error) return {tool:"requestApproval",ok:false,error:error.message};
+      if(error) return this.logTool({tool:"requestApproval",ok:false,error:error.message},"lead",leadId);
       const result=asObject(data);
-      return {
-        tool:"requestApproval",ok:true,
+      return this.logTool({
+        tool:"requestApproval",
+        ok:true,
         action_id:typeof result.action_id==="string"?result.action_id:undefined,
         approval_required:result.approval_required===true,
         data:result
-      };
+      },"lead",leadId);
     }catch(error){
-      return {tool:"requestApproval",ok:false,error:error instanceof Error?error.message:"Approval request failed"};
+      return this.logTool({
+        tool:"requestApproval",ok:false,error:error instanceof Error?error.message:"Approval request failed"
+      },"lead",leadId);
     }
   }
 }
