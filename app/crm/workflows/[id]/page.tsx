@@ -1,0 +1,1 @@
+import WorkflowsRouteShell from "../WorkflowsRouteShell";export default async function WorkflowDetailPage({params}:{params:Promise<{id:string}>}){const {id}=await params;return <WorkflowsRouteShell workflowId={id}/>;}

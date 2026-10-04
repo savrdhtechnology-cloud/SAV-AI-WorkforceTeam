@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "next": "15.5.27",
@@ -14,7 +16,8 @@
     "react-dom": "19.1.7",
     "lucide-react": "^0.468.0",
     "framer-motion": "^12.23.24",
-    "@supabase/supabase-js": "^2.75.0"
+    "@supabase/supabase-js": "^2.75.0",
+    "openai": "^7.17.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

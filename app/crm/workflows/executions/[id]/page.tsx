@@ -1,0 +1,1 @@
+import ExecutionDetail from "../../ExecutionDetail";export default async function WorkflowExecutionDetailPage({params}:{params:Promise<{id:string}>}){const {id}=await params;return <ExecutionDetail id={id}/>;}

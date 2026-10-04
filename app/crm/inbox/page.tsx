@@ -1,0 +1,1 @@
+import InboxRouteShell from "./InboxRouteShell";export default function InboxPage(){return <InboxRouteShell/>;}

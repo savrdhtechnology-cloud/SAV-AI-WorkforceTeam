@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
   BarChart3,
+  Bell,
   Bot,
   BriefcaseBusiness,
   CheckCircle2,
@@ -16,9 +17,9 @@ import {
   ListTodo,
   Loader2,
   LogOut,
-  MessageSquareMore,
   Network,
   Plus,
+  RefreshCw,
   Search,
   Settings,
   Sparkles,
@@ -27,10 +28,16 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { crmSupabase } from "./supabase-client";
+import { crmSupabase, crmSupabaseConfigured } from "./supabase-client";
+import TasksView from "./tasks/TasksView";
+import AgentsModule from "./agents/AgentsModule";
+import WorkflowsModule from "./workflows/WorkflowsModule";
+import InboxModule from "./inbox/InboxModule";
+import NotificationsModule from "./notifications/NotificationsModule";
+import NotificationBell from "./notifications/NotificationBell";
 import "./crm.css";
 
-type View = "dashboard" | "leads" | "pipeline" | "agents" | "workflows" | "inbox" | "tasks" | "integrations" | "settings";
+type View = "dashboard" | "leads" | "pipeline" | "agents" | "workflows" | "inbox" | "notifications" | "tasks" | "integrations" | "settings";
 
 type Lead = {
   id: string;
@@ -54,6 +61,7 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "agents", label: "AI Agents", icon: Bot },
   { id: "workflows", label: "Workflows", icon: Workflow },
   { id: "inbox", label: "Inbox", icon: Inbox },
+  { id: "notifications", label: "Notifications", icon: Bell },
   { id: "tasks", label: "Tasks", icon: ListTodo },
   { id: "integrations", label: "Integrations", icon: Network },
   { id: "settings", label: "Settings", icon: Settings },
@@ -72,15 +80,13 @@ export default function CRMPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
   const [integrations, setIntegrations] = useState<any[]>([]);
-  const [workflows, setWorkflows] = useState<any[]>([]);
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [conversations, setConversations] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [leadModal, setLeadModal] = useState(false);
   const [search, setSearch] = useState("");
   const [leadStatus, setLeadStatus] = useState("");
 
   useEffect(() => {
+    if (!crmSupabaseConfigured) return;
     crmSupabase.auth.getSession().then(({ data }) => {
       const email = data.session?.user.email || "";
       setUserEmail(email);
@@ -114,24 +120,18 @@ export default function CRMPage() {
   }
 
   async function refreshAll() {
-    const [ws, dash, leadRes, agentRes, integrationRes, workflowRes, taskRes, convoRes] = await Promise.all([
+    const [ws, dash, leadRes, agentRes, integrationRes] = await Promise.all([
       crmSupabase.rpc("sav_ai_crm_workspace"),
       crmSupabase.rpc("sav_ai_crm_dashboard"),
       crmSupabase.rpc("sav_ai_crm_list_leads", { p_status: null, p_search: null }),
       crmSupabase.rpc("sav_ai_crm_agents"),
       crmSupabase.rpc("sav_ai_crm_integrations"),
-      crmSupabase.rpc("sav_ai_crm_workflows"),
-      crmSupabase.rpc("sav_ai_crm_tasks"),
-      crmSupabase.rpc("sav_ai_crm_conversations"),
     ]);
     setWorkspace(ws.data);
     setDashboard(dash.data);
     setLeads((leadRes.data || []) as Lead[]);
     setAgents(agentRes.data || []);
     setIntegrations(integrationRes.data || []);
-    setWorkflows(workflowRes.data || []);
-    setTasks(taskRes.data || []);
-    setConversations(convoRes.data || []);
   }
 
   async function handleAuth(e: FormEvent<HTMLFormElement>) {
@@ -196,6 +196,8 @@ export default function CRMPage() {
     return stages.map((stage) => ({ stage, items: leads.filter((l) => l.status === stage) }));
   }, [leads]);
 
+  if (!crmSupabaseConfigured) return <div className="crm-auth-page"><div className="crm-auth-card" role="alert"><h2>CRM configuration required</h2><p>Supabase environment is not configured for this deployment.</p></div></div>;
+
   if (!sessionReady) return <div className="crm-auth-page" />;
 
   if (!userEmail) {
@@ -259,6 +261,7 @@ export default function CRMPage() {
             <h1>{nav.find((x) => x.id === view)?.label}</h1>
           </div>
           <div className="crm-top-actions">
+            <NotificationBell />
             <button onClick={refreshAll}>{loading ? <Loader2 size={13} className="spin" /> : <Activity size={13} />} Refresh</button>
             {view === "leads" && <button className="primary" onClick={() => setLeadModal(true)}><Plus size={13} /> New Lead</button>}
           </div>
@@ -279,10 +282,11 @@ export default function CRMPage() {
                 />
               )}
               {view === "pipeline" && <PipelineView pipeline={pipeline} />}
-              {view === "agents" && <AgentsView agents={agents} />}
-              {view === "workflows" && <SimpleList title="Workflows" icon={Workflow} items={workflows} empty="No workflows yet. Create workflow definitions once your automation rules are ready." />}
-              {view === "inbox" && <SimpleList title="Conversations" icon={MessageSquareMore} items={conversations} empty="No conversations yet. Connect WhatsApp, email, SMS, voice or web chat to start receiving threads." />}
-              {view === "tasks" && <SimpleList title="Tasks" icon={ListTodo} items={tasks} empty="No tasks yet. Follow-ups and human approval tasks will appear here." />}
+              {view === "agents" && <AgentsModule />}
+              {view === "workflows" && <WorkflowsModule />}
+              {view === "inbox" && <InboxModule />}
+              {view === "notifications" && <NotificationsModule />}
+              {view === "tasks" && <TasksView onChanged={refreshAll} />}
               {view === "integrations" && <IntegrationsView integrations={integrations} />}
               {view === "settings" && <SettingsView workspace={workspace} />}
             </motion.div>
@@ -364,7 +368,16 @@ function Dashboard({ dashboard }: { dashboard: any }) {
   </>;
 }
 
-function LeadsView({ leads, search, setSearch, leadStatus, setLeadStatus, updateLeadStatus }: any) {
+type LeadsViewProps = {
+  leads: Lead[];
+  search: string;
+  setSearch: (value: string) => void;
+  leadStatus: string;
+  setLeadStatus: (value: string) => void;
+  updateLeadStatus: (id: string, status: string) => Promise<void>;
+};
+
+function LeadsView({ leads, search, setSearch, leadStatus, setLeadStatus, updateLeadStatus }: LeadsViewProps) {
   return <>
     <div className="crm-toolbar">
       <div className="crm-search"><Search size={15} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search leads by name, company, email or phone..." /></div>
@@ -375,8 +388,8 @@ function LeadsView({ leads, search, setSearch, leadStatus, setLeadStatus, update
     </div>
     {leads.length ? <div className="crm-panel"><table className="crm-table"><thead><tr><th>LEAD</th><th>SOURCE</th><th>PRIORITY</th><th>SCORE</th><th>VALUE</th><th>STATUS</th><th>CREATED</th></tr></thead><tbody>
       {leads.map((l: Lead) => <tr key={l.id}>
-        <td><strong>{l.title}</strong><small>{l.company || l.email || l.phone || "No secondary detail"}</small></td>
-        <td><span className="crm-badge"><i /> {l.source}</span></td>
+        <td><a href={`/crm/leads/${l.id}`} className="crm-lead-link"><strong>{l.title}</strong></a><small>{l.company || l.email || l.phone || "No secondary detail"}</small></td>
+        <td><span className={`crm-badge ${l.source==="engagex"?"engagex":""}`}><i /> {l.source==="engagex"?"ENGAGEX":l.source}</span></td>
         <td>{l.priority}</td><td>{l.score}</td><td>{formatMoney(l.value || 0)}</td>
         <td><select className="crm-status-select" value={l.status} onChange={(e) => updateLeadStatus(l.id, e.target.value)}>{statuses.map((s) => <option key={s}>{s}</option>)}</select></td>
         <td>{shortDate(l.created_at)}</td>
@@ -394,19 +407,30 @@ function PipelineView({ pipeline }: any) {
   </div>;
 }
 
-function AgentsView({ agents }: any) {
-  return agents.length ? <div className="crm-agent-grid">{agents.map((a: any) => <motion.div className="crm-card crm-agent-card" key={a.id} whileHover={{ y: -5 }}>
-    <div className="crm-agent-top"><div className="crm-agent-icon"><Bot size={18} /></div><span className="crm-badge"><i /> {a.status}</span></div>
-    <h3>{a.name}</h3><p>{a.description}</p>
-    <div className="crm-agent-meta"><span>{a.role_name}</span><span>{a.autonomy_level}</span>{(a.channels || []).map((c: string) => <span key={c}>{c}</span>)}</div>
-  </motion.div>)}</div> : <EmptyState icon={Bot} title="No AI agents" text="Agents will appear after workspace initialization." />;
-}
-
 function IntegrationsView({ integrations }: any) {
-  return <div className="crm-integration-grid">{integrations.map((x: any) => <motion.div className="crm-card crm-integration-card" key={x.id} whileHover={{ y: -5 }}>
-    <div className="crm-integration-top"><div className="crm-integration-icon"><Network size={18} /></div><span className="crm-badge"><i /> {x.status}</span></div>
-    <h3>{x.display_name}</h3><p>{x.status === "connected" ? "Connected to the SAV AI workspace." : "Ready to configure when provider credentials are available."}</p>
-  </motion.div>)}</div>;
+  const [syncing,setSyncing]=useState(false);
+  const [syncMessage,setSyncMessage]=useState("");
+
+  async function syncEngageX(){
+    setSyncing(true); setSyncMessage("");
+    const {data}=await crmSupabase.auth.getSession();
+    const token=data.session?.access_token;
+    if(!token){setSyncing(false);setSyncMessage("Authentication required.");return;}
+    const res=await fetch("/api/integrations/engagex/sync",{method:"POST",headers:{Authorization:`Bearer ${token}`}});
+    const body=await res.json().catch(()=>({}));
+    setSyncing(false);
+    if(res.ok) setSyncMessage(`EngageX sync complete: ${body.synced||0} synced, ${body.failed||0} failed.`);
+    else setSyncMessage(body.message||body.error||"EngageX sync failed.");
+  }
+
+  return <div>
+    {syncMessage&&<div className="crm-panel crm-inline-message">{syncMessage}</div>}
+    <div className="crm-integration-grid">{integrations.map((x: any) => <motion.div className="crm-card crm-integration-card" key={x.id} whileHover={{ y: -5 }}>
+      <div className="crm-integration-top"><div className="crm-integration-icon"><Network size={18} /></div><span className={`crm-badge ${x.provider==="engagex"?"engagex":""}`}><i /> {x.status}</span></div>
+      <h3>{x.display_name}</h3><p>{x.status === "connected" ? "Connected to the SAV AI workspace." : "Ready to configure when provider credentials are available."}</p>
+      {x.provider==="engagex"&&<button onClick={syncEngageX} disabled={syncing}>{syncing?<Loader2 size={13}/>:<RefreshCw size={13}/>} Sync EngageX Leads</button>}
+    </motion.div>)}</div>
+  </div>;
 }
 
 function SimpleList({ title, icon: Icon, items, empty }: any) {

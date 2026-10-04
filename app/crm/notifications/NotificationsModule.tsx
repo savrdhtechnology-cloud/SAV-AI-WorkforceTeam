@@ -1,0 +1,91 @@
+"use client";
+import Link from "next/link";
+import { FormEvent,useEffect,useMemo,useState } from "react";
+import { Bell,CalendarClock,Check,Clock3,Filter,Loader2,RefreshCw,Search,Send,Settings2,ShieldAlert,Tag,X } from "lucide-react";
+import { NOTIFICATION_CHANNELS,NOTIFICATION_PRIORITIES,NOTIFICATION_STATUSES,NOTIFICATION_TYPES,NotificationListResponse,NotificationPreference,NotificationSchedule,NotificationTemplate } from "./notification-types";
+import { cancelNotification,createNotification,getChannels,getPreferences,getSchedules,getTemplates,listNotifications,markAllNotificationsRead,markNotificationRead,retryNotification,savePreferences,saveSchedule,saveTemplate,syncTaskReminders } from "./notification-service";
+
+type Tab="notifications"|"preferences"|"templates"|"channels"|"schedules";
+export default function NotificationsModule(){
+ const [data,setData]=useState<NotificationListResponse|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[notice,setNotice]=useState(""),[tab,setTab]=useState<Tab>("notifications");
+ const [search,setSearch]=useState(""),[channel,setChannel]=useState(""),[type,setType]=useState(""),[status,setStatus]=useState(""),[priority,setPriority]=useState(""),[recipient,setRecipient]=useState(""),[source,setSource]=useState(""),[agent,setAgent]=useState(""),[workflow,setWorkflow]=useState(""),[readState,setReadState]=useState(""),[date,setDate]=useState("");
+ const [createOpen,setCreateOpen]=useState(false),[preferences,setPreferences]=useState<NotificationPreference[]>([]),[templates,setTemplates]=useState<NotificationTemplate[]>([]),[channels,setChannels]=useState<any[]>([]),[schedules,setSchedules]=useState<NotificationSchedule[]>([]);
+
+ async function refresh(){
+  setLoading(true);setError("");
+  try{
+   const q=new URLSearchParams();if(search)q.set("search",search);if(channel)q.set("channel",channel);if(type)q.set("type",type);if(status)q.set("status",status);if(priority)q.set("priority",priority);if(recipient)q.set("recipient",recipient);if(source)q.set("source",source);if(agent)q.set("agent",agent);if(workflow)q.set("workflow",workflow);if(readState)q.set("read",readState);if(date){q.set("from",new Date(date+"T00:00:00").toISOString());q.set("to",new Date(date+"T23:59:59").toISOString());}
+   const r=await listNotifications(q.toString());setData(r);
+  }catch(e){setError(e instanceof Error?e.message:"Could not load notifications.");}finally{setLoading(false);}
+ }
+ useEffect(()=>{refresh();},[]);
+ useEffect(()=>{const t=setTimeout(()=>{if(data)refresh();},250);return()=>clearTimeout(t);},[search,channel,type,status,priority,recipient,source,agent,workflow,readState,date]);
+ async function loadSettings(next:Tab){setTab(next);try{if(next==="preferences")setPreferences((await getPreferences()).preferences||[]);if(next==="templates")setTemplates((await getTemplates()).templates||[]);if(next==="channels")setChannels((await getChannels()).channels||[]);if(next==="schedules")setSchedules((await getSchedules()).schedules||[]);}catch(e){setError(e instanceof Error?e.message:"Could not load notification settings.");}}
+ async function act(fn:()=>Promise<any>,message:string){setError("");setNotice("");try{await fn();setNotice(message);await refresh();}catch(e){setError(e instanceof Error?e.message:"Notification action failed.");}}
+ const metrics=data?.metrics||{total:0,unread:0,read:0,scheduled:0,sent:0,delivered:0,failed:0,cancelled:0,pending_approval:0};
+
+ if(loading&&!data)return <div className="notification-loading"><Loader2 className="spin" size={20}/> Loading notification engine...</div>;
+ return <div className="notification-module">
+  <div className="notification-metrics">{[
+   ["Total",metrics.total],["Unread",metrics.unread],["Read",metrics.read],["Scheduled",metrics.scheduled],["Sent",metrics.sent],["Delivered",metrics.delivered],["Failed",metrics.failed],["Cancelled",metrics.cancelled],["Approval",metrics.pending_approval]
+  ].map(([l,v])=><div className="crm-card notification-metric" key={String(l)}><span>{l}</span><strong>{v}</strong></div>)}</div>
+  {error&&<div className="task-error">{error}</div>}{notice&&<div className="agent-success">{notice}</div>}
+  <div className="notification-tabs">{(["notifications","preferences","templates","channels","schedules"] as Tab[]).map(t=><button className={tab===t?"active":""} key={t} onClick={()=>loadSettings(t)}>{t}</button>)}</div>
+  {tab==="notifications"&&<>
+   <div className="notification-toolbar">
+    <div className="crm-search"><Search size={14}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search notifications..."/></div>
+    <button onClick={()=>act(()=>syncTaskReminders(),"Task/follow-up reminders synchronized.")}><CalendarClock size={11}/>Sync reminders</button>
+    <button onClick={()=>act(()=>markAllNotificationsRead(),"All your notifications marked read.")}><Check size={11}/>Mark all read</button>
+    <button onClick={()=>refresh()}><RefreshCw size={11}/>Refresh</button>
+    {data?.context.permissions.create&&<button className="task-new-btn" onClick={()=>setCreateOpen(true)}><Send size={11}/>New</button>}
+   </div>
+   <div className="notification-filters">
+    <select value={channel} onChange={e=>setChannel(e.target.value)}><option value="">All channels</option>{NOTIFICATION_CHANNELS.map(x=><option key={x}>{x}</option>)}</select>
+    <select value={type} onChange={e=>setType(e.target.value)}><option value="">All types</option>{NOTIFICATION_TYPES.map(x=><option key={x}>{x}</option>)}</select>
+    <select value={status} onChange={e=>setStatus(e.target.value)}><option value="">All status</option>{NOTIFICATION_STATUSES.map(x=><option key={x}>{x}</option>)}</select>
+    <select value={priority} onChange={e=>setPriority(e.target.value)}><option value="">All priority</option>{NOTIFICATION_PRIORITIES.map(x=><option key={x}>{x}</option>)}</select>
+    <select value={recipient} onChange={e=>setRecipient(e.target.value)}><option value="">All recipients</option>{data?.context.members.map(m=><option key={m.id} value={m.id}>{m.full_name||m.email}</option>)}</select>
+    <input value={source} onChange={e=>setSource(e.target.value)} placeholder="Source"/>
+    <select value={agent} onChange={e=>setAgent(e.target.value)}><option value="">All AI agents</option>{data?.context.agents.map(a=><option key={a.id} value={a.id}>{a.display_name||a.name}</option>)}</select>
+    <select value={workflow} onChange={e=>setWorkflow(e.target.value)}><option value="">All workflows</option>{data?.context.workflows.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select>
+    <select value={readState} onChange={e=>setReadState(e.target.value)}><option value="">Read + unread</option><option value="unread">Unread</option><option value="read">Read</option></select>
+    <input type="date" value={date} onChange={e=>setDate(e.target.value)}/>
+   </div>
+   <div className="notification-grid">
+    <section className="crm-panel">
+     <div className="crm-panel-head"><h3>Recent Notifications</h3><span>{data?.notifications.length||0} records</span></div>
+     <div className="notification-list">{data?.notifications.length?data.notifications.map(n=><Link href={"/crm/notifications/"+n.id} className={"notification-row "+(!n.read_at?"unread":"")} key={n.id} onClick={()=>{if(!n.read_at)markNotificationRead(n.id).catch(()=>{});}}>
+       <div className="notification-row-icon"><Bell size={13}/></div><div><b>{n.title}</b><span>{n.body}</span><small>{n.notification_type} · {n.channel} · {n.source_type}</small></div><div className="notification-row-side"><em className={"priority "+n.priority}>{n.priority}</em><span className={"notification-status "+n.status.toLowerCase()}>{n.status}</span><time>{fmt(n.created_at)}</time></div>
+      </Link>):<Empty text="No notifications match the current filters."/>}</div>
+    </section>
+    <aside className="crm-panel notification-upcoming"><div className="crm-panel-head"><h3>Upcoming</h3><span>{data?.upcoming.length||0}</span></div>{data?.upcoming.length?data.upcoming.map(n=><Link key={n.id} href={"/crm/notifications/"+n.id}><Clock3 size={11}/><div><b>{n.title}</b><span>{fmt(n.scheduled_at)}</span></div></Link>):<Empty text="No scheduled notifications."/>}</aside>
+   </div>
+  </>}
+  {tab==="preferences"&&<PreferencesPanel items={preferences} onSave={async p=>{await savePreferences(p);setNotice("Notification preferences saved.");setPreferences((await getPreferences()).preferences||[]);}}/>}
+  {tab==="templates"&&<TemplatesPanel items={templates} canManage={Boolean(data?.context.permissions.templates)} onSaved={async()=>setTemplates((await getTemplates()).templates||[])}/>}
+  {tab==="channels"&&<ChannelsPanel items={channels}/>}
+  {tab==="schedules"&&<SchedulesPanel items={schedules} context={data?.context} onSaved={async()=>setSchedules((await getSchedules()).schedules||[])}/>}
+  {createOpen&&data&&<CreateNotificationModal context={data.context} onClose={()=>setCreateOpen(false)} onCreated={async()=>{setCreateOpen(false);setNotice("Notification created.");await refresh();}}/>}
+ </div>;
+}
+
+function PreferencesPanel({items,onSave}:{items:NotificationPreference[];onSave:(x:NotificationPreference[])=>Promise<void>}){
+ const categories=["task_reminders","followups","ai_alerts","workflow_alerts","inbox_alerts","escalation_alerts","system_alerts","system_security"];
+ const merged=categories.map(category=>items.find(x=>x.category===category)||({id:"",category,enabled:true,preferred_channel:"in_app",quiet_hours_start:null,quiet_hours_end:null,digest_frequency:"none"} as NotificationPreference));
+ const [rows,setRows]=useState(merged);useEffect(()=>setRows(merged),[items.length]);
+ return <div className="crm-panel notification-settings"><div className="crm-panel-head"><h3>Notification Preferences</h3><span>Quiet hours & digest foundation</span></div>{rows.map((p,i)=><div className="notification-setting-row" key={p.category}><b>{p.category.replaceAll("_"," ")}</b><label><input type="checkbox" checked={p.enabled} disabled={p.category==="system_security"} onChange={e=>setRows(r=>r.map((x,j)=>j===i?{...x,enabled:e.target.checked}:x))}/>Enabled</label><select value={p.preferred_channel} onChange={e=>setRows(r=>r.map((x,j)=>j===i?{...x,preferred_channel:e.target.value as any}:x))}>{NOTIFICATION_CHANNELS.map(c=><option key={c}>{c}</option>)}</select><input type="time" value={p.quiet_hours_start||""} onChange={e=>setRows(r=>r.map((x,j)=>j===i?{...x,quiet_hours_start:e.target.value||null}:x))}/><input type="time" value={p.quiet_hours_end||""} onChange={e=>setRows(r=>r.map((x,j)=>j===i?{...x,quiet_hours_end:e.target.value||null}:x))}/><select value={p.digest_frequency} onChange={e=>setRows(r=>r.map((x,j)=>j===i?{...x,digest_frequency:e.target.value}:x))}><option>none</option><option>daily</option><option>weekly</option></select></div>)}<button className="primary notification-save" onClick={()=>onSave(rows)}>Save preferences</button></div>;
+}
+
+function TemplatesPanel({items,canManage,onSaved}:{items:NotificationTemplate[];canManage:boolean;onSaved:()=>Promise<void>}){
+ const [open,setOpen]=useState(false);return <div className="crm-panel notification-settings"><div className="crm-panel-head"><h3>Templates</h3>{canManage&&<button onClick={()=>setOpen(true)}>New Template</button>}</div><div className="notification-template-grid">{items.map(t=><div className="crm-card" key={t.id}><b>{t.name}</b><span>{t.notification_type} · {t.channel} · v{t.version}</span><p>{t.body}</p><small>{t.is_active?"Active":"Inactive"}</small></div>)}</div>{open&&<TemplateModal onClose={()=>setOpen(false)} onSaved={async()=>{setOpen(false);await onSaved();}}/>}</div>;
+}
+function TemplateModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>Promise<void>}){async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();const f=new FormData(e.currentTarget);await saveTemplate({name:f.get("name"),notificationType:f.get("type"),channel:f.get("channel"),subject:f.get("subject"),body:f.get("body"),variables:String(f.get("variables")||"").split(",").map(x=>x.trim()).filter(Boolean),isActive:true});await onSaved();}return <div className="crm-modal-wrap"><form className="crm-modal" onSubmit={submit}><div className="crm-modal-head"><h3>Notification Template</h3><button type="button" onClick={onClose}><X size={14}/></button></div><div className="crm-form"><label>Name<input name="name" required/></label><label>Type<select name="type">{NOTIFICATION_TYPES.map(x=><option key={x}>{x}</option>)}</select></label><label>Channel<select name="channel">{NOTIFICATION_CHANNELS.map(x=><option key={x}>{x}</option>)}</select></label><label>Subject<input name="subject"/></label><label className="full">Body<textarea name="body" required placeholder="Task {{task.title}} is due at {{task.due_at}}"/></label><label className="full">Variables<input name="variables" placeholder="task.title, task.due_at"/></label><div className="crm-form-actions"><button type="button" onClick={onClose}>Cancel</button><button className="primary">Save</button></div></div></form></div>}
+
+function ChannelsPanel({items}:{items:any[]}){return <div className="crm-panel notification-settings"><div className="crm-panel-head"><h3>Channel Status</h3><span>Provider-neutral delivery</span></div><div className="notification-channel-grid">{items.map(c=><div className="crm-card" key={c.channel}><b>{c.channel}</b><span className={"notification-status "+String(c.status).replace("_","-")}>{c.status}</span><p>{c.provider||"Provider adapter required"}</p></div>)}</div><p className="notification-help">Email, WhatsApp and SMS reuse Phase 4 adapters. Push and webhook stay fail-closed until a real provider/endpoint is installed.</p></div>}
+
+function SchedulesPanel({items,context,onSaved}:{items:NotificationSchedule[];context:any;onSaved:()=>Promise<void>}){const [open,setOpen]=useState(false);return <div className="crm-panel notification-settings"><div className="crm-panel-head"><h3>Schedules</h3><button onClick={()=>setOpen(true)}>New Schedule</button></div>{items.map(s=><div className="notification-setting-row" key={s.id}><b>{s.title}</b><span>{s.notification_type}</span><span>{s.channel}</span><span>{fmt(s.scheduled_at)}</span><span>{s.recurrence_rule||"one-time"}</span><span>{s.status}</span></div>)}{open&&<ScheduleModal context={context} onClose={()=>setOpen(false)} onSaved={async()=>{setOpen(false);await onSaved();}}/>}</div>}
+function ScheduleModal({context,onClose,onSaved}:{context:any;onClose:()=>void;onSaved:()=>Promise<void>}){async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();const f=new FormData(e.currentTarget);await saveSchedule({notificationType:f.get("type"),channel:f.get("channel"),recipientMemberId:f.get("recipient")||null,title:f.get("title"),body:f.get("body"),priority:f.get("priority"),scheduledAt:new Date(String(f.get("scheduledAt"))).toISOString(),recurrenceRule:f.get("recurrence")||null,sourceType:"schedule",metadata:{}});await onSaved();}return <div className="crm-modal-wrap"><form className="crm-modal" onSubmit={submit}><div className="crm-modal-head"><h3>Schedule Notification</h3><button type="button" onClick={onClose}><X size={14}/></button></div><div className="crm-form"><label>Type<select name="type">{NOTIFICATION_TYPES.map(x=><option key={x}>{x}</option>)}</select></label><label>Channel<select name="channel">{NOTIFICATION_CHANNELS.map(x=><option key={x}>{x}</option>)}</select></label><label>Recipient<select name="recipient" required>{context?.members?.map((m:any)=><option key={m.id} value={m.id}>{m.full_name||m.email}</option>)}</select></label><label>Priority<select name="priority">{NOTIFICATION_PRIORITIES.map(x=><option key={x}>{x}</option>)}</select></label><label className="full">Title<input name="title" required/></label><label className="full">Body<textarea name="body" required/></label><label>When<input name="scheduledAt" type="datetime-local" required/></label><label>Recurrence<select name="recurrence"><option value="">One time</option><option value="DAILY">Daily</option><option value="WEEKLY">Weekly</option></select></label><div className="crm-form-actions"><button type="button" onClick={onClose}>Cancel</button><button className="primary">Schedule</button></div></div></form></div>}
+
+function CreateNotificationModal({context,onClose,onCreated}:{context:any;onClose:()=>void;onCreated:()=>Promise<void>}){async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();const f=new FormData(e.currentTarget);await createNotification({notificationType:f.get("type"),channel:f.get("channel"),recipientMemberId:f.get("recipient")||null,title:f.get("title"),body:f.get("body"),priority:f.get("priority"),deepLink:f.get("deepLink")||null,scheduledAt:f.get("scheduledAt")?new Date(String(f.get("scheduledAt"))).toISOString():null,sourceType:"manual",metadata:{}});await onCreated();}return <div className="crm-modal-wrap"><form className="crm-modal" onSubmit={submit}><div className="crm-modal-head"><h3>Create Notification</h3><button type="button" onClick={onClose}><X size={14}/></button></div><div className="crm-form"><label>Type<select name="type">{NOTIFICATION_TYPES.map(x=><option key={x}>{x}</option>)}</select></label><label>Channel<select name="channel">{NOTIFICATION_CHANNELS.map(x=><option key={x}>{x}</option>)}</select></label><label>Recipient<select name="recipient" required><option value="">Select recipient</option>{context.members.map((m:any)=><option key={m.id} value={m.id}>{m.full_name||m.email}</option>)}</select></label><label>Priority<select name="priority">{NOTIFICATION_PRIORITIES.map(x=><option key={x}>{x}</option>)}</select></label><label className="full">Title<input name="title" required/></label><label className="full">Body<textarea name="body" required/></label><label>Schedule<input name="scheduledAt" type="datetime-local"/></label><label>Deep link<input name="deepLink" placeholder="/crm/tasks"/></label><div className="crm-form-actions"><button type="button" onClick={onClose}>Cancel</button><button className="primary">Create</button></div></div></form></div>}
+function Empty({text}:{text:string}){return <div className="crm-empty"><div><Bell size={22}/><p>{text}</p></div></div>}
+function fmt(v?:string|null){return v?new Date(v).toLocaleString("en-IN"):"—";}

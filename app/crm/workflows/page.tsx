@@ -1,0 +1,1 @@
+import WorkflowsRouteShell from "./WorkflowsRouteShell";export default function WorkflowsPage(){return <WorkflowsRouteShell/>;}
