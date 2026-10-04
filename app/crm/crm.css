@@ -199,7 +199,9 @@ radial-gradient(circle at 70% 70%,rgba(73,227,255,.15),transparent 26%),#071523}
 .task-card-copy small{display:flex;align-items:center;gap:5px;font-size:7.5px;color:#6f8ca5;margin-top:7px}
 .task-card-copy small em{display:inline-flex;align-items:center;gap:3px;font-style:normal;color:#ffc46b}
 .task-assignee{display:flex;align-items:center;gap:6px;color:#8ba8bf;font-size:8px;max-width:160px}
-.task-card-actions{border-left:1px solid #173754;display:flex;align-items:center;gap:5px;padding:8px}
+.task-card-actions{border-left:1px solid #173754;display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:8px;min-width:0;flex-wrap:nowrap}
+.task-card-actions .task-run-btn{width:auto;min-width:88px;height:30px;padding:0 10px;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;font-size:8px;font-weight:800}
+.task-card-actions select{min-width:88px;max-width:104px}
 .task-card-actions button,.task-drawer-head button{width:30px;height:30px;border:1px solid #284a67;background:#0d2032;color:#a9c2d7;border-radius:8px;display:grid;place-items:center;cursor:pointer}
 .task-loading{min-height:220px;display:grid;place-items:center;color:#7f9bb2;font-size:9px;gap:8px}
 .task-error,.task-validation{border:1px solid #703749;background:rgba(122,37,63,.14);color:#ffadbb;border-radius:9px;padding:10px;font-size:8px;line-height:1.6}
@@ -528,3 +530,9 @@ radial-gradient(circle at 70% 70%,rgba(73,227,255,.15),transparent 26%),#071523}
 .crm-detail-list{display:grid;grid-template-columns:1fr 1fr;gap:12px}.crm-detail-list>div{display:flex;flex-direction:column;gap:5px;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:12px}.crm-detail-list>div.full{grid-column:1/-1}.crm-detail-list span{font-size:11px;opacity:.62;text-transform:uppercase;letter-spacing:.06em}.crm-detail-list b{font-size:13px;font-weight:600;word-break:break-word}
 .crm-email-card{display:flex;gap:16px;justify-content:space-between;align-items:flex-start;padding:16px;border-top:1px solid rgba(255,255,255,.07)}.crm-email-card:first-child{border-top:0}.crm-email-card>div{min-width:0}.crm-email-card b{display:block}.crm-email-card span{display:block;font-size:11px;opacity:.62;margin-top:4px}.crm-email-card p{white-space:pre-wrap;font-size:12px;line-height:1.6;opacity:.8;margin:12px 0 0}.crm-email-card button{white-space:nowrap}
 @media(max-width:800px){.crm-detail-list{grid-template-columns:1fr}.crm-detail-list>div.full{grid-column:auto}.crm-email-card{flex-direction:column}}
+
+@media(max-width:1100px){
+  .task-card{grid-template-columns:minmax(0,1fr)}
+  .task-card-actions{border-left:0;border-top:1px solid #173754;justify-content:flex-end;flex-wrap:wrap}
+  .task-card-actions .task-run-btn{min-width:96px}
+}
