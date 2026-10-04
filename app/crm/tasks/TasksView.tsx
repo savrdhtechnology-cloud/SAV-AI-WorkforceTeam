@@ -15,6 +15,7 @@ import {
   ListFilter,
   Loader2,
   Plus,
+  Play,
   Search,
   Trash2,
   UserRound,
@@ -30,6 +31,7 @@ import {
   setTaskStatus,
   updateTask,
 } from "./task-service";
+import { executeAgent } from "../agents/agent-service";
 import {
   EMPTY_TASK_DRAFT,
   TaskContext,
@@ -70,6 +72,8 @@ export default function TasksView({ onChanged }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [formErrors, setFormErrors] = useState<string[]>([]);
+  const [runningTaskId, setRunningTaskId] = useState<string | null>(null);
+  const [runMessage, setRunMessage] = useState("");
 
   async function refresh(nextFilters = filters) {
     setLoading(true);
@@ -203,6 +207,56 @@ export default function TasksView({ onChanged }: Props) {
     }
   }
 
+  async function runAiTask(task: TaskRecord) {
+    if (task.assignee_type !== "ai" || !task.assigned_agent_id) {
+      setError("This task is not assigned to an AI agent.");
+      return;
+    }
+    if (!task.lead_id) {
+      setError("Link this AI task to a CRM lead before running it.");
+      return;
+    }
+
+    setRunningTaskId(task.id);
+    setError("");
+    setRunMessage("");
+    try {
+      if (task.status === "pending") {
+        await setTaskStatus(task.id, "in_progress");
+      }
+
+      const command = [
+        "Execute the assigned CRM task.",
+        `Task: ${task.title}`,
+        task.description ? `Instructions: ${task.description}` : "",
+        task.notes ? `Notes: ${task.notes}` : "",
+        "Use only verified CRM/customer data. Do not invent status, payment, approval or delivery claims.",
+        "Respect human approval requirements for external actions."
+      ].filter(Boolean).join("\n");
+
+      const result = await executeAgent(
+        task.assigned_agent_id,
+        command,
+        { lead_id: task.lead_id, task_id: task.id },
+        { mode: "analyze" }
+      );
+
+      setRunMessage(
+        result?.result?.approval_required
+          ? "AI task started. Agent plan created; approval is required for protected actions."
+          : "AI task started successfully. SAV-Sales analysis/plan has been created."
+      );
+      await refresh();
+      if (detail?.task.id === task.id) setDetail(await getTaskDetail(task.id));
+      await onChanged?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "AI task could not be started.");
+      await refresh();
+    } finally {
+      setRunningTaskId(null);
+    }
+  }
+
   const metrics = useMemo(() => ({
     overdue: tasks.filter((t) => t.is_overdue).length,
     today: tasks.filter((t) => isToday(t.due_at) && t.status !== "completed").length,
@@ -262,6 +316,7 @@ export default function TasksView({ onChanged }: Props) {
       </div>
 
       {error && <div className="task-error">{error}</div>}
+      {runMessage && <div className="agent-success">{runMessage}</div>}
 
       {loading ? (
         <div className="task-loading"><Loader2 className="spin" size={20} /> Loading tasks...</div>
@@ -287,6 +342,17 @@ export default function TasksView({ onChanged }: Props) {
                 <ChevronRight size={16} />
               </button>
               <div className="task-card-actions">
+                {task.assignee_type === "ai" && task.status !== "completed" && task.status !== "cancelled" && (
+                  <button
+                    className="task-run-btn"
+                    onClick={() => runAiTask(task)}
+                    disabled={saving || runningTaskId === task.id}
+                    title="Run AI task"
+                  >
+                    {runningTaskId === task.id ? <Loader2 className="spin" size={13} /> : <Play size={13} />}
+                    <span>{task.status === "pending" ? "Run Task" : "Run Again"}</span>
+                  </button>
+                )}
                 <select value={task.status} disabled={saving} onChange={(e) => changeStatus(task.id, e.target.value as TaskStatus)}>
                   {statuses.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
                 </select>
