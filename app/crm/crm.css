@@ -519,3 +519,12 @@ radial-gradient(circle at 70% 70%,rgba(73,227,255,.15),transparent 26%),#071523}
   .notification-timeline-row b{font-size:9.5px}
   .notification-timeline-row span,.notification-timeline-row small,.notification-timeline-row time{font-size:8.5px}
 }
+
+
+.crm-lead-link{color:inherit;text-decoration:none}.crm-lead-link:hover strong{text-decoration:underline}
+.crm-badge.engagex{border-color:rgba(66,230,190,.35);box-shadow:0 0 0 1px rgba(66,230,190,.08) inset}
+.crm-detail-shell{display:block}.crm-detail-main{margin-left:0;min-height:100vh}.crm-back-link{display:inline-flex;align-items:center;gap:7px;text-decoration:none;color:inherit}
+.crm-inline-message{margin-bottom:16px;padding:12px 14px}
+.crm-detail-list{display:grid;grid-template-columns:1fr 1fr;gap:12px}.crm-detail-list>div{display:flex;flex-direction:column;gap:5px;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:12px}.crm-detail-list>div.full{grid-column:1/-1}.crm-detail-list span{font-size:11px;opacity:.62;text-transform:uppercase;letter-spacing:.06em}.crm-detail-list b{font-size:13px;font-weight:600;word-break:break-word}
+.crm-email-card{display:flex;gap:16px;justify-content:space-between;align-items:flex-start;padding:16px;border-top:1px solid rgba(255,255,255,.07)}.crm-email-card:first-child{border-top:0}.crm-email-card>div{min-width:0}.crm-email-card b{display:block}.crm-email-card span{display:block;font-size:11px;opacity:.62;margin-top:4px}.crm-email-card p{white-space:pre-wrap;font-size:12px;line-height:1.6;opacity:.8;margin:12px 0 0}.crm-email-card button{white-space:nowrap}
+@media(max-width:800px){.crm-detail-list{grid-template-columns:1fr}.crm-detail-list>div.full{grid-column:auto}.crm-email-card{flex-direction:column}}
