@@ -1,8 +1,23 @@
 import OpenAI from "openai";
 
+export type AIProviderDiagnostic={
+  provider:string;
+  model:string|null;
+  http_status:number|null;
+  code:string|null;
+  type:string|null;
+  request_id:string|null;
+  message:string;
+};
+
 export type AIProviderResult<T> =
   | { ok:true; data:T; provider:string }
-  | { ok:false; error:"AI_PROVIDER_NOT_CONFIGURED"|"AI_PROVIDER_ERROR"; message:string };
+  | {
+      ok:false;
+      error:"AI_PROVIDER_NOT_CONFIGURED"|"AI_PROVIDER_ERROR";
+      message:string;
+      diagnostic:AIProviderDiagnostic;
+    };
 
 export interface AIProvider {
   generateResponse(input:{prompt:string;context?:Record<string,unknown>}):Promise<AIProviderResult<{text:string}>>;
@@ -29,7 +44,11 @@ function parseJsonObject(text:string):Record<string,unknown>{
 
 class UnconfiguredProvider implements AIProvider {
   private result<T>():AIProviderResult<T>{
-    return {ok:false,error:"AI_PROVIDER_NOT_CONFIGURED",message:"OpenAI provider configuration requires AI_PROVIDER=openai, AI_API_KEY, and AI_MODEL in the server environment."};
+    const message="OpenAI provider configuration requires AI_PROVIDER=openai, AI_API_KEY, and AI_MODEL in the server environment.";
+    return {
+      ok:false,error:"AI_PROVIDER_NOT_CONFIGURED",message,
+      diagnostic:{provider:OPENAI_PROVIDER,model:process.env.AI_MODEL?.trim()||null,http_status:null,code:"AI_PROVIDER_NOT_CONFIGURED",type:"configuration_error",request_id:null,message}
+    };
   }
   generateResponse(){ return Promise.resolve(this.result<{text:string}>()); }
   classifyIntent(){ return Promise.resolve(this.result<{intent:string;confidence:number}>()); }
@@ -42,7 +61,11 @@ class UnconfiguredProvider implements AIProvider {
 class AdapterUnavailableProvider extends UnconfiguredProvider {
   constructor(private readonly configuredProvider:string){ super(); }
   private unavailable<T>():AIProviderResult<T>{
-    return {ok:false,error:"AI_PROVIDER_ERROR",message:`Unsupported AI_PROVIDER "${this.configuredProvider}". This build supports AI_PROVIDER=openai.`};
+    const message=`Unsupported AI_PROVIDER "${this.configuredProvider}". This build supports AI_PROVIDER=openai.`;
+    return {
+      ok:false,error:"AI_PROVIDER_ERROR",message,
+      diagnostic:{provider:this.configuredProvider,model:process.env.AI_MODEL?.trim()||null,http_status:null,code:"UNSUPPORTED_PROVIDER",type:"configuration_error",request_id:null,message}
+    };
   }
   generateResponse(){ return Promise.resolve(this.unavailable<{text:string}>()); }
   classifyIntent(){ return Promise.resolve(this.unavailable<{intent:string;confidence:number}>()); }
@@ -73,10 +96,20 @@ class OpenAIProvider implements AIProvider {
       provider:OPENAI_PROVIDER,model:this.model,status,code,type,param,request_id:requestId,message
     });
     const detail=[status?("HTTP "+status):null,code,type].filter(Boolean).join(" · ");
+    const publicMessage=detail?("OpenAI Responses API request failed ("+detail+")."):"OpenAI Responses API request failed.";
     return {
       ok:false,
       error:"AI_PROVIDER_ERROR",
-      message:detail?("OpenAI Responses API request failed ("+detail+")."):"OpenAI Responses API request failed."
+      message:publicMessage,
+      diagnostic:{
+        provider:OPENAI_PROVIDER,
+        model:this.model,
+        http_status:status,
+        code,
+        type,
+        request_id:requestId,
+        message
+      }
     };
   }
 
