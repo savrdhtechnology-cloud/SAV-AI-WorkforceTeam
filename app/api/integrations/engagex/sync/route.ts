@@ -20,14 +20,23 @@ export async function POST(req:NextRequest){
 
   const engagexUrl=(process.env.ENGAGEX_PROJECT_URL||"").trim();
   const engagexKey=(process.env.ENGAGEX_SERVICE_ROLE_KEY||"").trim();
-  const engagexWorkspace=(process.env.ENGAGEX_WORKSPACE_ID||"").trim();
-  if(!engagexUrl||!engagexKey||!engagexWorkspace){
+  if(!engagexUrl||!engagexKey){
     return jsonError("EngageX manual sync is not configured.",503,"ENGAGEX_NOT_CONFIGURED");
   }
 
   const admin=serverAdminSupabase();
   if(!admin) return jsonError("Server database integration is not configured.",503,"DATABASE_NOT_READY");
   const engagex=createClient(engagexUrl,engagexKey,{auth:{persistSession:false,autoRefreshToken:false}});
+
+  const {data:engagexWorkspaceRow,error:workspaceLookupError}=await engagex
+    .from("engagex_workspaces")
+    .select("id,slug,name")
+    .eq("slug","savrdh-engagex")
+    .maybeSingle();
+  if(workspaceLookupError||!engagexWorkspaceRow?.id){
+    return jsonError("Savrdh Technology EngageX workspace was not found.",503,"ENGAGEX_WORKSPACE_NOT_FOUND");
+  }
+  const engagexWorkspace=engagexWorkspaceRow.id;
 
   const [contactResult,prospectResult]=await Promise.all([
     engagex.from("engagex_contacts")
