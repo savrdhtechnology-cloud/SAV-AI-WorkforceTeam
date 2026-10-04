@@ -105,13 +105,19 @@ export async function analyzeSalesLead(input:{
     return {ok:false,error:"LEAD_READ_FAILED",message:leadResult.error||"Lead could not be read"} as const;
   }
 
+  const {data:catalog,error:catalogError}=await input.supabase.rpc("sav_ai_crm_active_products");
+  if(catalogError){
+    return {ok:false,error:"PRODUCT_CATALOG_READ_FAILED",message:catalogError.message} as const;
+  }
+  const products=Array.isArray(catalog)?catalog:[];
   const provider=await getAIProvider().planAction({
     command:input.command,
     context:{
       lead:leadResult.data,
+      active_products:products,
       mode:"analyze",
       available_tools:["updateLeadStatus","createTask","createFollowup","requestApproval"],
-      unavailable_tools:["getProduct","assignLead","createApplication"],
+      unavailable_tools:["assignLead","createApplication"],
       constraints:{
         analyze_writes:false,
         no_external_communication:true,
@@ -125,6 +131,23 @@ export async function analyzeSalesLead(input:{
   if(!provider.ok) return provider;
 
   const decision=normalizeSalesDecision(input.leadId,provider.data);
+  if(decision.recommended_product && !products.some((p)=>stringValue(object(p).name,160)===decision.recommended_product)){
+    decision.recommended_product=null;
+  }
+  const selectedProduct=decision.recommended_product
+    ? products.find((p)=>stringValue(object(p).name,160)===decision.recommended_product)
+    : null;
+  const selectedProductId=selectedProduct?stringValue(object(selectedProduct).id,64):"";
+  const analysisSave=await input.supabase.rpc("sav_ai_crm_save_lead_ai_analysis",{
+    p_lead_id:input.leadId,
+    p_qualification:decision.qualification,
+    p_confidence:decision.confidence,
+    p_reasoning:decision.summary,
+    p_product_id:selectedProductId||null
+  });
+  if(analysisSave.error){
+    return {ok:false,error:"AI_ANALYSIS_SAVE_FAILED",message:analysisSave.error.message} as const;
+  }
   const result:AgentEngineResult={
     decision,
     actions_taken:[],
