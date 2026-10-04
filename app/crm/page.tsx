@@ -387,8 +387,8 @@ function LeadsView({ leads, search, setSearch, leadStatus, setLeadStatus, update
     </div>
     {leads.length ? <div className="crm-panel"><table className="crm-table"><thead><tr><th>LEAD</th><th>SOURCE</th><th>PRIORITY</th><th>SCORE</th><th>VALUE</th><th>STATUS</th><th>CREATED</th></tr></thead><tbody>
       {leads.map((l: Lead) => <tr key={l.id}>
-        <td><strong>{l.title}</strong><small>{l.company || l.email || l.phone || "No secondary detail"}</small></td>
-        <td><span className="crm-badge"><i /> {l.source}</span></td>
+        <td><a href={`/crm/leads/${l.id}`} className="crm-lead-link"><strong>{l.title}</strong></a><small>{l.company || l.email || l.phone || "No secondary detail"}</small></td>
+        <td><span className={`crm-badge ${l.source==="engagex"?"engagex":""}`}><i /> {l.source==="engagex"?"ENGAGEX":l.source}</span></td>
         <td>{l.priority}</td><td>{l.score}</td><td>{formatMoney(l.value || 0)}</td>
         <td><select className="crm-status-select" value={l.status} onChange={(e) => updateLeadStatus(l.id, e.target.value)}>{statuses.map((s) => <option key={s}>{s}</option>)}</select></td>
         <td>{shortDate(l.created_at)}</td>
