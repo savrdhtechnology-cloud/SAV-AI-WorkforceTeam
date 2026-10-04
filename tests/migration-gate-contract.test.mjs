@@ -31,7 +31,10 @@ function functionDefs(sql){
    .map(m=>({name:m[1].replaceAll('"',"").split(".").pop(),args:m[2].replace(/\s+/g," ").trim()}));
 }
 
-const migrationSql=migrationFiles.map(p=>readFileSync(join(root,p),"utf8"));
+const additionalMigrationFiles=[
+ "supabase/migrations/20261004_sav_sales_agent_engine_phase1.sql"
+];
+const migrationSql=[...migrationFiles,...additionalMigrationFiles].map(p=>readFileSync(join(root,p),"utf8"));
 const definitions=migrationSql.flatMap(functionDefs);
 const definitionNames=new Set(definitions.map(x=>x.name));
 
