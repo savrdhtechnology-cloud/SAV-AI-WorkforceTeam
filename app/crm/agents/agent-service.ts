@@ -46,8 +46,22 @@ export async function setAgentStatus(id:string,status:"active"|"paused"|"disable
   const op=status==="active"?"enable":status;
   return api<{ok:true;status:string}>(`/api/agents/${id}/${op}`,{method:"POST"});
 }
-export async function executeAgent(id:string,command:string,context?:Record<string,unknown>){
-  return api<any>(`/api/agents/${id}/execute`,{method:"POST",body:JSON.stringify({command,context:context||{}})});
+export async function executeAgent(
+  id:string,
+  command:string,
+  context?:Record<string,unknown>,
+  options?:{mode?:"analyze"|"execute";decision?:unknown;sourceExecutionId?:string}
+){
+  return api<any>(`/api/agents/${id}/execute`,{
+    method:"POST",
+    body:JSON.stringify({
+      command,
+      context:context||{},
+      mode:options?.mode||"analyze",
+      decision:options?.decision,
+      source_execution_id:options?.sourceExecutionId
+    })
+  });
 }
 export async function listExecutions(id:string){
   return api<{executions:any[]}>(`/api/agents/${id}/executions`);
