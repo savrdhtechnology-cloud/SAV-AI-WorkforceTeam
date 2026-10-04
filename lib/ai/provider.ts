@@ -25,6 +25,7 @@ export interface AIProvider {
   extractLeadData(input:{text:string}):Promise<AIProviderResult<Record<string,unknown>>>;
   summarizeConversation(input:{messages:Array<{role:string;content:string}>}):Promise<AIProviderResult<{summary:string}>>;
   planAction(input:{command:string;context?:Record<string,unknown>}):Promise<AIProviderResult<{action:string;payload:Record<string,unknown>;confidence:number}>>;
+  generateSalesEmail(input:{lead:Record<string,unknown>;product:Record<string,unknown>;qualification:string;need:string}):Promise<AIProviderResult<{subject:string;body:string;personalization_summary:string;confidence:number}>>;
   evaluateConfidence(input:{output:unknown}):Promise<AIProviderResult<{confidence:number}>>;
 }
 
@@ -55,6 +56,7 @@ class UnconfiguredProvider implements AIProvider {
   extractLeadData(){ return Promise.resolve(this.result<Record<string,unknown>>()); }
   summarizeConversation(){ return Promise.resolve(this.result<{summary:string}>()); }
   planAction(){ return Promise.resolve(this.result<{action:string;payload:Record<string,unknown>;confidence:number}>()); }
+  generateSalesEmail(){ return Promise.resolve(this.result<{subject:string;body:string;personalization_summary:string;confidence:number}>()); }
   evaluateConfidence(){ return Promise.resolve(this.result<{confidence:number}>()); }
 }
 
@@ -72,6 +74,7 @@ class AdapterUnavailableProvider extends UnconfiguredProvider {
   extractLeadData(){ return Promise.resolve(this.unavailable<Record<string,unknown>>()); }
   summarizeConversation(){ return Promise.resolve(this.unavailable<{summary:string}>()); }
   planAction(){ return Promise.resolve(this.unavailable<{action:string;payload:Record<string,unknown>;confidence:number}>()); }
+  generateSalesEmail(){ return Promise.resolve(this.unavailable<{subject:string;body:string;personalization_summary:string;confidence:number}>()); }
   evaluateConfidence(){ return Promise.resolve(this.unavailable<{confidence:number}>()); }
 }
 
@@ -193,7 +196,7 @@ class OpenAIProvider implements AIProvider {
           "You are SAV-Sales, the Sales & Telecalling Executive inside SAVRDH AI Workforce.",
           "Analyze only CRM data and knowledge explicitly provided in the request.",
           "Never invent customer facts, product catalog entries, financial facts, approvals, or application status.",
-          "If no supported Savrdh product/service can be identified from supplied context, set recommended_product to null.",
+          "Only recommend a product whose exact name appears in context.active_products. If no supported active product fits, set recommended_product to null.",
           "ANALYZE mode is read-only: propose actions but do not claim they were performed.",
           "EXECUTION is performed later by deterministic CRM tools, not by the model.",
           "Never propose marking a lead won, approving payments, changing financial records, deleting data, sending external messages, or bypassing approval.",
@@ -273,6 +276,48 @@ class OpenAIProvider implements AIProvider {
       };
     }catch(error){
       return this.error<{action:string;payload:Record<string,unknown>;confidence:number}>(error);
+    }
+  }
+
+  async generateSalesEmail(input:{lead:Record<string,unknown>;product:Record<string,unknown>;qualification:string;need:string}):Promise<AIProviderResult<{subject:string;body:string;personalization_summary:string;confidence:number}>>{
+    try{
+      const response=await this.client.responses.create({
+        model:this.model,
+        instructions:[
+          "Write a concise professional B2B sales email for Savrdh Technology.",
+          "Use only facts present in the supplied lead and active product records.",
+          "Do not invent customer needs, product capabilities, pricing, claims, or prior conversations.",
+          "If personalization is weak, keep it factual and generic rather than guessing.",
+          "Return structured JSON only."
+        ].join("\n"),
+        input:JSON.stringify(input),
+        text:{format:{
+          type:"json_schema",
+          name:"sav_sales_email",
+          strict:true,
+          schema:{
+            type:"object",
+            additionalProperties:false,
+            properties:{
+              subject:{type:"string"},
+              body:{type:"string"},
+              personalization_summary:{type:"string"},
+              confidence:{type:"number",minimum:0,maximum:1}
+            },
+            required:["subject","body","personalization_summary","confidence"]
+          }
+        }},
+        store:false
+      });
+      const parsed=parseJsonObject(response.output_text);
+      return {ok:true,data:{
+        subject:String(parsed.subject||"").trim().slice(0,500),
+        body:String(parsed.body||"").trim().slice(0,12000),
+        personalization_summary:String(parsed.personalization_summary||"").trim().slice(0,1500),
+        confidence:clampConfidence(parsed.confidence)
+      },provider:OPENAI_PROVIDER};
+    }catch(error){
+      return this.error<{subject:string;body:string;personalization_summary:string;confidence:number}>(error);
     }
   }
 
