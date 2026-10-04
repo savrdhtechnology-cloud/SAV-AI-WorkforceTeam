@@ -45,7 +45,7 @@ test("provider fails closed and uses the real OpenAI Responses adapter",()=>{
   assert.match(provider,/AI_PROVIDER/);
   assert.match(provider,/AI_API_KEY/);
   assert.match(provider,/AI_MODEL/);
-  assert.match(provider,/sales_qualification_plan/);
+  assert.match(provider,/sav_sales_agent_decision/);
   assert.match(provider,/external_action_performed:false/);
   assert.doesNotMatch(provider,/mock|fake response|dummy/i);
 });
@@ -113,7 +113,8 @@ test("execution API distinguishes database readiness from provider failures",()=
   assert.match(executeApi,/DATABASE_NOT_READY/);
   assert.match(executeApi,/PGRST202/);
   assert.match(executeApi,/Could not find the function/);
-  assert.match(executeApi,/getAIProvider\(\)\.planAction/);
+  assert.match(executeApi,/analyzeSalesLead/);
+  assert.match(executeApi,/executeSalesDecision/);
   assert.match(provider,/AI_PROVIDER_NOT_CONFIGURED/);
   assert.match(provider,/AI_PROVIDER_ERROR/);
   assert.match(agentService,/AgentApiError/);
@@ -180,6 +181,7 @@ test("provider boundary remains fail-closed and does not fabricate planning outp
   assert.match(provider,/OpenAIProvider/);
   assert.match(provider,/responses\.create/);
   assert.doesNotMatch(provider,/mock|fake response|dummy/i);
+  assert.match(executeApi,/analyzeSalesLead/);
+  assert.match(executeApi,/executeSalesDecision/);
   assert.match(executeApi,/getAIProvider\(\)\.planAction/);
-  assert.match(executeApi,/sav_ai_crm_list_leads/);
 });
