@@ -259,6 +259,74 @@ begin
   if not found then raise exception 'Lead not found'; end if;
 end $$;
 
+
+create or replace function public.sav_ai_crm_mark_sales_email_sent(
+  p_draft_id uuid,p_provider_message_id text
+) returns jsonb language plpgsql security definer set search_path=public,sav_ai_crm as $
+declare me sav_ai_crm.members; d sav_ai_crm.sales_email_drafts; updated_tasks int:=0;
+begin
+  me:=sav_ai_crm.agent_current_member();
+  if me.id is null or me.role='viewer' then raise exception 'CRM write permission required'; end if;
+
+  select * into d
+  from sav_ai_crm.sales_email_drafts
+  where id=p_draft_id and workspace_id=me.workspace_id
+  for update;
+
+  if d.id is null then raise exception 'Email draft not found'; end if;
+  if nullif(trim(coalesce(p_provider_message_id,'')),'') is null then raise exception 'Provider message id required'; end if;
+
+  update sav_ai_crm.sales_email_drafts
+  set status='sent',
+      provider_message_id=p_provider_message_id,
+      sent_at=coalesce(sent_at,now()),
+      error_code=null,
+      error_message=null,
+      updated_at=now()
+  where id=d.id;
+
+  update sav_ai_crm.leads
+  set status=case when status='new' then 'contacted' else status end,
+      updated_at=now(),
+      metadata=coalesce(metadata,'{}'::jsonb)||jsonb_build_object(
+        'last_email_sent_id',p_provider_message_id,
+        'last_email_sent_at',now()
+      )
+  where id=d.lead_id and workspace_id=me.workspace_id;
+
+  update sav_ai_crm.tasks
+  set status='completed',
+      completed_at=coalesce(completed_at,now()),
+      updated_at=now()
+  where workspace_id=me.workspace_id
+    and lead_id=d.lead_id
+    and assigned_agent_id=d.agent_id
+    and status in ('pending','in_progress')
+    and (
+      lower(coalesce(followup_type,''))='email'
+      or lower(title) like '%email%'
+    );
+  get diagnostics updated_tasks = row_count;
+
+  insert into sav_ai_crm.activities(
+    workspace_id,lead_id,actor_member_id,activity_type,title,description,channel,metadata
+  ) values(
+    me.workspace_id,d.lead_id,me.id,'sales_email_sent','Customer email sent',
+    'Provider confirmed email delivery request; lead moved to contacted and matching email task completed.',
+    'email',
+    jsonb_build_object('draft_id',d.id,'provider_message_id',p_provider_message_id,'completed_tasks',updated_tasks)
+  );
+
+  return jsonb_build_object(
+    'ok',true,
+    'draft_id',d.id,
+    'lead_id',d.lead_id,
+    'status','sent',
+    'lead_status','contacted',
+    'completed_tasks',updated_tasks
+  );
+end $;
+
 revoke all on function public.sav_ai_crm_ingest_engagex_lead(jsonb) from public,anon,authenticated;
 grant execute on function public.sav_ai_crm_ingest_engagex_lead(jsonb) to service_role;
 revoke all on function public.sav_ai_crm_active_products() from public,anon;
@@ -266,11 +334,13 @@ revoke all on function public.sav_ai_crm_save_sales_email_draft(uuid,uuid,uuid,t
 revoke all on function public.sav_ai_crm_approve_sales_email_draft(uuid) from public,anon;
 revoke all on function public.sav_ai_crm_lead_sales_detail(uuid) from public,anon;
 revoke all on function public.sav_ai_crm_save_lead_ai_analysis(uuid,text,numeric,text,uuid) from public,anon;
+revoke all on function public.sav_ai_crm_mark_sales_email_sent(uuid,text) from public,anon;
 grant execute on function public.sav_ai_crm_active_products() to authenticated;
 grant execute on function public.sav_ai_crm_save_sales_email_draft(uuid,uuid,uuid,text,text,text,text,numeric) to authenticated;
 grant execute on function public.sav_ai_crm_approve_sales_email_draft(uuid) to authenticated;
 grant execute on function public.sav_ai_crm_lead_sales_detail(uuid) to authenticated;
 grant execute on function public.sav_ai_crm_save_lead_ai_analysis(uuid,text,numeric,text,uuid) to authenticated;
+grant execute on function public.sav_ai_crm_mark_sales_email_sent(uuid,text) to authenticated;
 
 insert into sav_ai_crm.integrations(workspace_id,provider,display_name,status,config)
 select w.id,'engagex','EngageX','connected',jsonb_build_object('mode','webhook','secrets','server-side-only')
