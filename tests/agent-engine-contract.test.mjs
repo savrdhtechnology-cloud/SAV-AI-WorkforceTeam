@@ -64,7 +64,9 @@ test("provider remains environment-driven and returns safe diagnostics",()=>{
 test("product recommendation fails closed when no catalog knowledge is provided",()=>{
   assert.match(provider,/recommended_product/);
   assert.match(provider,/set recommended_product to null/);
-  assert.match(engine,/unavailable_tools:\["getProduct","assignLead","createApplication"\]/);
+  assert.match(engine,/sav_ai_crm_active_products/);
+  assert.match(engine,/active_products:products/);
+  assert.match(engine,/decision\.recommended_product=null/);
 });
 
 test("execute mode reuses analyzed decision instead of calling provider again",()=>{
@@ -73,4 +75,20 @@ test("execute mode reuses analyzed decision instead of calling provider again",(
   const executeBlock=engine.slice(executeStart);
   assert.doesNotMatch(executeBlock,/getAIProvider\(\)/);
   assert.match(executeBlock,/validateSalesDecision/);
+});
+
+
+test("EngageX sales workflow is repository-backed and fail-closed",()=>{
+  const migration=read("supabase/migrations/20261004_engagex_sales_workflow_phase2.sql");
+  const webhook=read("app/api/integrations/engagex/webhook/route.ts");
+  const draft=read("app/api/sales/email-drafts/route.ts");
+  const approve=read("app/api/sales/email-drafts/[id]/approve-send/route.ts");
+  assert.match(migration,/engagex_record_id/);
+  assert.match(migration,/sav_ai_crm_ingest_engagex_lead/);
+  assert.match(migration,/Duplicate email prevented/);
+  assert.match(webhook,/ENGAGEX_WEBHOOK_SECRET/);
+  assert.match(webhook,/x-engagex-sync-token/);
+  assert.match(draft,/EMAIL_CONSENT_MISSING/);
+  assert.match(draft,/PRODUCT_FIT_MISSING/);
+  assert.match(approve,/EngageX email-send capability is not configured/);
 });
