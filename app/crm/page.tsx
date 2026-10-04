@@ -19,6 +19,7 @@ import {
   LogOut,
   Network,
   Plus,
+  RefreshCw,
   Search,
   Settings,
   Sparkles,
@@ -407,10 +408,29 @@ function PipelineView({ pipeline }: any) {
 }
 
 function IntegrationsView({ integrations }: any) {
-  return <div className="crm-integration-grid">{integrations.map((x: any) => <motion.div className="crm-card crm-integration-card" key={x.id} whileHover={{ y: -5 }}>
-    <div className="crm-integration-top"><div className="crm-integration-icon"><Network size={18} /></div><span className="crm-badge"><i /> {x.status}</span></div>
-    <h3>{x.display_name}</h3><p>{x.status === "connected" ? "Connected to the SAV AI workspace." : "Ready to configure when provider credentials are available."}</p>
-  </motion.div>)}</div>;
+  const [syncing,setSyncing]=useState(false);
+  const [syncMessage,setSyncMessage]=useState("");
+
+  async function syncEngageX(){
+    setSyncing(true); setSyncMessage("");
+    const {data}=await crmSupabase.auth.getSession();
+    const token=data.session?.access_token;
+    if(!token){setSyncing(false);setSyncMessage("Authentication required.");return;}
+    const res=await fetch("/api/integrations/engagex/sync",{method:"POST",headers:{Authorization:`Bearer ${token}`}});
+    const body=await res.json().catch(()=>({}));
+    setSyncing(false);
+    if(res.ok) setSyncMessage(`EngageX sync complete: ${body.synced||0} synced, ${body.failed||0} failed.`);
+    else setSyncMessage(body.message||body.error||"EngageX sync failed.");
+  }
+
+  return <div>
+    {syncMessage&&<div className="crm-panel crm-inline-message">{syncMessage}</div>}
+    <div className="crm-integration-grid">{integrations.map((x: any) => <motion.div className="crm-card crm-integration-card" key={x.id} whileHover={{ y: -5 }}>
+      <div className="crm-integration-top"><div className="crm-integration-icon"><Network size={18} /></div><span className={`crm-badge ${x.provider==="engagex"?"engagex":""}`}><i /> {x.status}</span></div>
+      <h3>{x.display_name}</h3><p>{x.status === "connected" ? "Connected to the SAV AI workspace." : "Ready to configure when provider credentials are available."}</p>
+      {x.provider==="engagex"&&<button onClick={syncEngageX} disabled={syncing}>{syncing?<Loader2 size={13}/>:<RefreshCw size={13}/>} Sync EngageX Leads</button>}
+    </motion.div>)}</div>
+  </div>;
 }
 
 function SimpleList({ title, icon: Icon, items, empty }: any) {
